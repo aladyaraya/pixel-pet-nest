@@ -31,10 +31,10 @@ export interface EggSession {
 export interface EggSettings {
   /** 音效开关（默认关） */
   sound: boolean
-  /** 辅助朗读开关（默认关） */
-  narration: boolean
   /** 翻面自动揭晓（需真机验证，默认关） */
   flipReveal: boolean
+  /** 上次选择的正式模式时长（ms），新一局默认沿用 */
+  lastDurationMs: number
   /** 隐私同意状态缓存 */
   privacyAgreed: boolean | null
 }
@@ -72,3 +72,14 @@ export const PHASE_BOUNDARIES = { cracking: 0.5, almost: 0.85 }
 
 export const NORMAL_DURATION_MS = 3 * 60 * 1000
 export const DEMO_DURATION_MS = 20 * 1000
+
+/** 正式模式可选的计时时长（ms）：1 / 3 / 5 / 10 分钟 */
+export const DURATION_OPTIONS_MS = [60_000, 3 * 60_000, 5 * 60_000, 10 * 60_000]
+export const DEFAULT_DURATION_MS = NORMAL_DURATION_MS
+
+/** 时长的人话标签：不足 1 分钟按秒，否则按分钟 */
+export function formatDuration(ms: number): string {
+  const totalSeconds = Math.round(ms / 1000)
+  if (totalSeconds < 60) return `${totalSeconds} 秒`
+  return `${Math.round(totalSeconds / 60)} 分钟`
+}

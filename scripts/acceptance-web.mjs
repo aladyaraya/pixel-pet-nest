@@ -46,8 +46,15 @@ try {
   await page.waitForSelector('text=孵一颗 · 3 分钟')
   check('开始页可打开且有主按钮', true)
   check('开始页有演示入口', await page.locator('text=体验一局 · 20 秒').count() === 1)
-  check('开始页有音效 / 辅助朗读开关', await page.getByRole('button', { pressed: false }).count() >= 2)
+  check('开始页有音效开关（默认关）', await page.getByRole('button', { name: /音效/ }).count() === 1)
   await page.screenshot({ path: `${OUT}/01-start.png` })
+
+  /* 1b. 自定义计时时长 */
+  check('开始页提供时长选项（1/3/5/10 分钟）', await page.getByRole('button', { name: /^(1|3|5|10) 分钟$/ }).count() === 4)
+  check('默认选中 3 分钟', await page.getByRole('button', { name: '3 分钟', exact: true }).getAttribute('aria-pressed') === 'true')
+  check('主按钮文案跟随时长', (await page.locator('text=孵一颗 · 3 分钟').count()) === 1)
+  await page.getByRole('button', { name: '5 分钟', exact: true }).click()
+  check('切换时长后主按钮文案更新', (await page.locator('text=孵一颗 · 5 分钟').count()) === 1)
 
   /* 2. 开始演示局 */
   await page.click('text=体验一局 · 20 秒')
@@ -130,6 +137,11 @@ try {
   await page.waitForURL(/#\/collection/)
   await page.waitForSelector('text=已遇见 1 / 6')
   check('收藏页显示已遇见 1 / 6', true)
+  await page.waitForSelector('[role="status"] p', { state: 'detached', timeout: 8_000 }).catch(() => {})
+  await page.getByRole('button', { name: /^重听/ }).first().click()
+  await page.waitForSelector('[role="status"] p', { timeout: 5_000 })
+  const toastText = await page.locator('[role="status"] p').first().innerText()
+  check('小喇叭点击后有文案反馈（toast）', /：.+/.test(toastText), toastText)
   await page.screenshot({ path: `${OUT}/09-collection.png` })
 
   /* 9. 重复点击防护：已揭晓局直接开新局；未揭晓局开始新局需确认 */

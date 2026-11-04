@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Captions, ChevronRight, Egg, Volume2, VolumeX } from 'lucide-react'
+import { ChevronRight, Egg, Volume2, VolumeX } from 'lucide-react'
 
 import { Button } from '@/shared/ui/Button'
 import { Card, CardBody } from '@/shared/ui/Card'
@@ -8,7 +8,7 @@ import { Dialog } from '@/shared/ui/Dialog'
 import { cn } from '@/shared/lib/cn'
 import { useEgg } from '@/shared/egg/EggProvider'
 import { eggFrames } from '@/shared/egg/patterns'
-import { PHASE_LABEL, type EggMode } from '@/shared/egg/types'
+import { DURATION_OPTIONS_MS, DEFAULT_DURATION_MS, PHASE_LABEL, formatDuration, type EggMode } from '@/shared/egg/types'
 import { MatrixView } from '@/app/components/MatrixView'
 
 function formatCountdown(ms: number): string {
@@ -59,34 +59,32 @@ export function StartPage() {
     abortSession,
     updateSettings,
   } = useEgg()
-  const [pendingStart, setPendingStart] = useState<EggMode | null>(null)
+  const [pendingStart, setPendingStart] = useState<{ mode: EggMode; durationMs: number } | null>(null)
+  const [durationMs, setDurationMs] = useState(
+    () => settings.lastDurationMs || DEFAULT_DURATION_MS,
+  )
 
   const active = session != null && phase !== 'revealed'
   const privacyMissing = loaded && settings.privacyAgreed === false
 
   const onStart = (mode: EggMode) => {
+    const chosen = mode === 'demo' ? 0 : durationMs
     if (active) {
-      setPendingStart(mode)
+      setPendingStart({ mode, durationMs: chosen })
       return
     }
-    void startSession(mode).then(() => navigate('/hatch'))
+    void startSession(mode, chosen || undefined).then(() => navigate('/hatch'))
   }
 
   return (
     <div className="page flex min-h-full flex-col">
-      {/* 开始页顶部：音效与辅助朗读开关（默认关闭、相互独立） */}
+      {/* 开始页顶部：音效开关（默认关闭） */}
       <div className="flex items-center justify-end gap-2">
         <TogglePill
           on={settings.sound}
           onClick={() => updateSettings({ sound: !settings.sound })}
           icon={settings.sound ? <Volume2 className="size-4" aria-hidden /> : <VolumeX className="size-4" aria-hidden />}
           label="音效"
-        />
-        <TogglePill
-          on={settings.narration}
-          onClick={() => updateSettings({ narration: !settings.narration })}
-          icon={<Captions className="size-4" aria-hidden />}
-          label="辅助朗读"
         />
       </div>
 
@@ -117,9 +115,30 @@ export function StartPage() {
         ) : null}
 
         <div className="w-full space-y-3">
+          <div className="flex items-center justify-center gap-2" role="group" aria-label="计时时长">
+            {DURATION_OPTIONS_MS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={durationMs === option}
+                onClick={() => {
+                  setDurationMs(option)
+                  updateSettings({ lastDurationMs: option })
+                }}
+                className={cn(
+                  'min-h-tap rounded-full border px-3.5 text-body transition-colors duration-fast',
+                  durationMs === option
+                    ? 'border-primary bg-primary-soft text-foreground'
+                    : 'border-border bg-surface text-muted-foreground',
+                )}
+              >
+                {formatDuration(option)}
+              </button>
+            ))}
+          </div>
           <Button size="lg" block onClick={() => onStart('normal')}>
             <Egg className="size-5" aria-hidden />
-            孵一颗 · 3 分钟
+            孵一颗 · {formatDuration(durationMs)}
           </Button>
           <Button size="lg" variant="outline" block onClick={() => onStart('demo')}>
             体验一局 · 20 秒
@@ -158,10 +177,12 @@ export function StartPage() {
             </Button>
             <Button
               onClick={() => {
-                const mode = pendingStart
+                const pending = pendingStart
                 setPendingStart(null)
-                if (!mode) return
-                void abortSession().then(() => startSession(mode)).then(() => navigate('/hatch'))
+                if (!pending) return
+                void abortSession()
+                  .then(() => startSession(pending.mode, pending.durationMs || undefined))
+                  .then(() => navigate('/hatch'))
               }}
             >
               结束并重孵

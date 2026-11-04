@@ -235,7 +235,7 @@ export function HatchPage() {
               <Button
                 size="lg"
                 block
-                onClick={() => void startSession(session.mode)}
+                onClick={() => void startSession(session.mode, session.durationMs)}
               >
                 <Egg className="size-5" aria-hidden />
                 再孵一颗

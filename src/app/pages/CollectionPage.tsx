@@ -4,9 +4,10 @@ import { ChevronRight, Egg, Volume2 } from 'lucide-react'
 import { Button } from '@/shared/ui/Button'
 import { Card, CardBody } from '@/shared/ui/Card'
 import { EmptyState } from '@/shared/ui/Feedback'
+import { useToast } from '@/shared/ui/Toast'
 import { useEgg } from '@/shared/egg/EggProvider'
+import { sfx } from '@/shared/egg/audio'
 import { PETS, petFrame } from '@/shared/egg/pets'
-import { speak } from '@/shared/egg/speech'
 import { MatrixView } from '@/app/components/MatrixView'
 import { usePageTitle } from '@/app/layout/PageTitle'
 import { formatRelativeTime } from '@/shared/lib/format'
@@ -14,7 +15,8 @@ import { formatRelativeTime } from '@/shared/lib/format'
 export function CollectionPage() {
   usePageTitle('收藏')
   const navigate = useNavigate()
-  const { loaded, record, session, phase } = useEgg()
+  const { loaded, record, session, phase, settings } = useEgg()
+  const { toast } = useToast()
 
   if (!loaded) return null
 
@@ -80,7 +82,10 @@ export function CollectionPage() {
                     <button
                       type="button"
                       aria-label={`重听${pet.name}的文案`}
-                      onClick={() => speak(`${pet.name}。${pet.quote}`)}
+                      onClick={() => {
+                        if (settings.sound) sfx.meet()
+                        toast({ title: `${pet.name}：${pet.quote}` })
+                      }}
                       className="flex size-11 items-center justify-center rounded-md text-muted-foreground active:bg-accent"
                     >
                       <Volume2 className="size-5" aria-hidden />

@@ -32,7 +32,6 @@ import {
   type BackScreenMode,
 } from './backScreen'
 import { sfx, setSoundEnabled } from './audio'
-import { setNarrationEnabled, speak } from './speech'
 import {
   defaultRecord,
   loadRecord,
@@ -41,8 +40,9 @@ import {
 import { PET_BY_ID, petFrame, pickPetId, type Pet } from './pets'
 import { eggFrames, frameForPhase } from './patterns'
 import {
+  DEFAULT_DURATION_MS,
   DEMO_DURATION_MS,
-  NORMAL_DURATION_MS,
+  formatDuration,
   PHASE_BOUNDARIES,
   type EggMode,
   type EggPhase,
@@ -100,7 +100,7 @@ export interface EggContextValue {
   /** 减少动态（系统偏好）：不做帧动画 */
   reducedMotion: boolean
   collectionCount: number
-  startSession: (mode: EggMode) => Promise<void>
+  startSession: (mode: EggMode, durationMs?: number) => Promise<void>
   reveal: () => Promise<void>
   abortSession: () => Promise<void>
   retrySave: () => Promise<void>
@@ -179,7 +179,6 @@ export function EggProvider({ children }: { children: ReactNode }) {
           setRecord(loadedRecord)
           recordRef.current = loadedRecord
           setSoundEnabled(loadedRecord.settings.sound)
-          setNarrationEnabled(loadedRecord.settings.narration)
         }
       } catch (error) {
         if (error instanceof BridgeError && error.code === 'privacy') {
@@ -285,7 +284,6 @@ export function EggProvider({ children }: { children: ReactNode }) {
       const dueToast = () => toast({ title: '孵好了，翻过来看看。', tone: 'success' })
       dueToast()
       if (recordRef.current.settings.sound) sfx.due()
-      speak('孵好了，翻过来看看。')
       try {
         void invokeNative('vibrateShort', { type: 'medium' })
       } catch {
@@ -297,11 +295,9 @@ export function EggProvider({ children }: { children: ReactNode }) {
       const nextSession: EggSession = { ...session, phase: current, hintedPhases: [...hinted, current] }
       void persist({ ...recordRef.current, session: nextSession })
       if (current === 'waiting') {
-        toast({ title: '三分钟后，看看里面是谁。' })
-        speak('三分钟后，看看里面是谁。')
+        toast({ title: `${formatDuration(session.durationMs)}后，看看里面是谁。` })
       } else if (current === 'cracking') {
         toast({ title: '里面好像动了一下。' })
-        speak('里面好像动了一下。')
         if (recordRef.current.settings.sound) sfx.stage()
       }
     }
@@ -360,15 +356,18 @@ export function EggProvider({ children }: { children: ReactNode }) {
 
   /* ---------- 动作：开始一局 ---------- */
   const startSession = useCallback(
-    async (mode: EggMode) => {
+    async (mode: EggMode, durationMs?: number) => {
       const nowTs = Date.now()
-      const durationMs = mode === 'demo' ? DEMO_DURATION_MS : NORMAL_DURATION_MS
+      const chosen =
+        mode === 'demo'
+          ? DEMO_DURATION_MS
+          : Math.max(1_000, Math.round(durationMs ?? recordRef.current.settings.lastDurationMs ?? DEFAULT_DURATION_MS))
       const nextSession: EggSession = {
         sessionId: `egg_${nowTs.toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
         mode,
-        durationMs,
+        durationMs: chosen,
         startedAt: nowTs,
-        deadlineAt: nowTs + durationMs,
+        deadlineAt: nowTs + chosen,
         petId: pickPetId(),
         phase: 'waiting',
         revealedAt: null,
@@ -377,14 +376,17 @@ export function EggProvider({ children }: { children: ReactNode }) {
       readyNotified.current = false
       monoBase.current = { wall: nowTs, mono: performance.now() }
       setNow(nowTs)
-      await persist({ ...recordRef.current, session: nextSession })
+      await persist({
+        ...recordRef.current,
+        settings: { ...recordRef.current.settings, lastDurationMs: mode === 'demo' ? recordRef.current.settings.lastDurationMs : chosen },
+        session: nextSession,
+      })
       await wakeBackScreen().then((r) => {
         if (r.ok) setBackScreenStatus('ok')
         else setBackScreenStatus('failed')
       })
       await submitPhaseFrame('waiting', nextSession.petId)
       if (recordRef.current.settings.sound) sfx.start()
-      speak('三分钟后，看看里面是谁。')
     },
     [persist, submitPhaseFrame],
   )
@@ -421,8 +423,6 @@ export function EggProvider({ children }: { children: ReactNode }) {
       // 预览环境无振动
     }
     if (recordRef.current.settings.sound) sfx.crack()
-    const pet = PET_BY_ID[petId]
-    if (pet) speak(`${pet.name}。${pet.quote}`)
     submitSeq.current += 1
     const seq = submitSeq.current
     const result = await pushFrame(petFrame(petId))
@@ -487,7 +487,6 @@ export function EggProvider({ children }: { children: ReactNode }) {
         settings: { ...recordRef.current.settings, ...patch },
       }
       if (patch.sound !== undefined) setSoundEnabled(patch.sound)
-      if (patch.narration !== undefined) setNarrationEnabled(patch.narration)
       void persist(next)
     },
     [persist],

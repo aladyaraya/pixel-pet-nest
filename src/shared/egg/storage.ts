@@ -8,6 +8,7 @@
  * ========================================================================== */
 
 import { invokeNative, BridgeError } from '@/shared/bridge'
+import { DEFAULT_DURATION_MS } from './types'
 import type { EggRecord, EggSession, PetCount } from './types'
 
 export const RECORD_VERSION = 1
@@ -16,7 +17,7 @@ const RECORD_KEY = 'egg.record.v1'
 export function defaultRecord(): EggRecord {
   return {
     version: RECORD_VERSION,
-    settings: { sound: false, narration: false, flipReveal: false, privacyAgreed: null },
+    settings: { sound: false, flipReveal: false, lastDurationMs: DEFAULT_DURATION_MS, privacyAgreed: null },
     session: null,
     collection: {},
   }
