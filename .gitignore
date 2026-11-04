@@ -20,3 +20,4 @@ capsule/signing/*.keystore
 /.admin-visual-review.json
 
 /pwa-build-context.json
+attachments/

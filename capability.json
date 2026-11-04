@@ -6,6 +6,12 @@
   "adminAuth": false,
   "includes": {
     "plugins": [],
-    "connectors": []
+    "connectors": [
+      {
+        "connector_id": "ic_atomic_990001",
+        "connector_name": "背面点阵屏",
+        "version": "1.0.0"
+      }
+    ]
   }
 }

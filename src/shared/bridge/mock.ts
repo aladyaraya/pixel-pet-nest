@@ -348,6 +348,7 @@ const KNOWN_APIS = new Set([
   'vibrateLong',
   'haptic',
   'setKeepScreenOn',
+  'getSensor',
   'adjustPosition',
   'scanCode',
   'getLocation',
@@ -453,6 +454,13 @@ export function createMockSdk(): CapsuleSdk {
       case 'setKeepScreenOn':
       case 'adjustPosition':
         return ok()
+      case 'getSensor': {
+        // 预览 mock：屏幕朝上的加速度（正面朝上放桌上），供翻面逻辑在浏览器里联调
+        const type = String(params.type || 'accelerometer')
+        const values =
+          type === 'accelerometer' ? [0.12, 0.03, 9.81] : type === 'gyroscope' ? [0, 0, 0] : [0]
+        return ok({ type, values })
+      }
       case 'scanCode':
         return ok({
           result: 'https://example.com/mock-scan',
@@ -492,6 +500,8 @@ export function createMockSdk(): CapsuleSdk {
         )
         return ok({ keys, currentSize, limitSize: 5 * 1024 * 1024 })
       }
+      case 'privacy.getStatus':
+        return ok({ agreed: true, protocolVersion: 1, agreedVersion: 1, agreedAt: Date.now(), shellVersion: 'mock', applicationId: 'mock_app' })
       case 'setClipboardData':
         await navigator.clipboard?.writeText(String(params.data)).catch(() => undefined)
         return ok()

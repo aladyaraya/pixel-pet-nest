@@ -3,7 +3,7 @@
  *
  * 新增全局常量（应用名、版本号、默认分页大小等）放这里，不要散落在各页面里。
  */
-export const APP_NAME = 'p_0b48bb06f8c0d4dd'
+export const APP_NAME = '这颗蛋快孵出来了'
 
 export const APP_VERSION = '0.1.0'
 

@@ -139,6 +139,11 @@ export interface NativeCapabilityMap {
     params: { keepScreenOn: boolean }
     result: Record<string, never>
   }
+  /** 读一帧传感器数据；values 最多 3 轴（加速度 / 陀螺 / 磁场三轴，光线 / 距离通常只第一项有意义） */
+  getSensor: {
+    params: { type?: 'accelerometer' | 'gyroscope' | 'light' | 'proximity' | 'magnetic' }
+    result: { type: string; values: number[] }
+  }
   /** bottom 单位是 dp，不是 px */
   adjustPosition: { params: { bottom: number }; result: Record<string, never> }
   scanCode: {

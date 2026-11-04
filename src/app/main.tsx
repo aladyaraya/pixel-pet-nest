@@ -11,6 +11,7 @@ import { initStatusBar } from '@/shared/native/status-bar'
 import { initViewportUnitsPolyfill } from '@/shared/native/viewport-units'
 import { ToastProvider } from '@/shared/ui/Toast'
 import { PwaProvider } from '@/shared/pwa/PwaProvider'
+import { EggProvider } from '@/shared/egg/EggProvider'
 import { App } from './App'
 
 const container = document.getElementById('root')
@@ -36,12 +37,14 @@ createRoot(container).render(
     <NativeProvider>
       <ToastProvider>
         <AuthProvider>
-          {/* WebView 里加载本地资源时没有服务端路由，统一用 HashRouter */}
-          <HashRouter>
-            {/* 屏幕方向（capsule/manifest.json 的 orientation）由壳在原生层锁定、
-                平台预览也按该字段限制横竖屏切换，H5 侧不做任何方向处理 */}
-            {app}
-          </HashRouter>
+          <EggProvider>
+            {/* WebView 里加载本地资源时没有服务端路由，统一用 HashRouter */}
+            <HashRouter>
+              {/* 屏幕方向（capsule/manifest.json 的 orientation）由壳在原生层锁定、
+                  平台预览也按该字段限制横竖屏切换，H5 侧不做任何方向处理 */}
+              {app}
+            </HashRouter>
+          </EggProvider>
         </AuthProvider>
       </ToastProvider>
     </NativeProvider>

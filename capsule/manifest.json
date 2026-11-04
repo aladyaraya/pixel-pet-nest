@@ -1,10 +1,10 @@
 {
   "applicationId": "ai_p_0b48bb06f8c0d4dd",
-  "name": "p_0b48bb06f8c0d4dd",
+  "name": "这颗蛋快孵出来了",
   "version": "0.1.0",
   "versionCode": 1,
   "entry": "web/index.html",
-  "description": "p_0b48bb06f8c0d4dd",
+  "description": "把手机正面朝下，让背屏上的蛋慢慢裂开，三分钟后揭晓一只小家伙。",
   "orientation": "portrait",
   "fullscreen": false,
   "permissions": []
