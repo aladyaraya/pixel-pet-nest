@@ -1,0 +1,143 @@
+/* =============================================================================
+ * 设计 token（唯一色值来源）
+ *
+ * 约束（见 references/05-styling.md）：
+ * 1. 字面量色值只允许出现在本文件，其它任何文件都必须使用 token 或 Tailwind 语义类。
+ * 2. token 用「空格分隔的 RGB 通道」书写，便于 Tailwind 用 rgb(var(--x) / <alpha-value>) 支持透明度。
+ * 3. 新增颜色 = 在 :root 加一个原始色阶 + 一个语义映射，缺一不可。
+ * 4. 语义 token 必须成对提供前景与背景（如 --primary / --primary-foreground）。
+ * 5. 前景/背景的配对要满足 4.5:1 对比度（可读性红线，门禁 G44 会逐对计算）——
+ *    配出低对比度的组合通常不是"颜色不好看"，而是根本看不清。
+ * 6. 本工程只有一套配色：不得写死色值，也不得加 `dark:` 变体。把颜色抽成 token 是为了
+ *    以后能统一调色（改一处、全局生效），不是为了做配色切换——真要切换时按用户明确要求再加。
+ * ========================================================================== */
+
+:root {
+  /* ---------- 原始色阶（raw palette） ---------- */
+  --gray-0: 255 255 255;
+  --gray-50: 245 246 248;
+  --gray-100: 240 241 244;
+  --gray-150: 233 235 240;
+  --gray-200: 227 229 234;
+  --gray-300: 208 212 220;
+  --gray-400: 154 161 173;
+  --gray-500: 107 114 128;
+  --gray-550: 100 106 120;
+  --gray-700: 63 68 79;
+  --gray-800: 43 48 58;
+  --gray-850: 29 33 41;
+  --gray-900: 23 26 33;
+  --gray-950: 15 17 21;
+  --gray-neutral-950: 17 17 17;
+  --gray-1000: 0 0 0;
+
+  --indigo-100: 238 240 255;
+  --indigo-300: 165 180 252;
+  --indigo-400: 129 140 248;
+  --indigo-500: 99 102 241;
+  --indigo-600: 79 70 229;
+  --indigo-900: 35 42 77;
+
+  --green-300: 52 211 153;
+  --green-800: 22 101 52;
+  --amber-300: 251 191 36;
+  --amber-800: 146 64 14;
+  --red-300: 248 113 113;
+  --red-700: 185 28 28;
+
+  /* ---------- 语义 token（明色主题） ---------- */
+  --background: var(--gray-50);
+  --foreground: 23 24 28;
+
+  --surface: var(--gray-0);
+  --surface-foreground: 23 24 28;
+  --surface-muted: var(--gray-100);
+
+  --muted: var(--gray-100);
+  /* 次要文字：必须能在 background / surface / muted 三种底上都达到 4.5:1（门禁 G44 会算） */
+  --muted-foreground: var(--gray-550);
+
+  --primary: var(--indigo-600);
+  --primary-foreground: var(--gray-0);
+  --primary-soft: var(--indigo-100);
+
+  --secondary: var(--gray-150);
+  --secondary-foreground: 43 45 51;
+
+  --accent: 236 238 243;
+  --accent-foreground: 31 33 38;
+
+  /* 状态色同时要当"文字色"用（徽标 / 提示 / 价格）：明色主题下必须够深才能到 4.5:1，
+   * 所以用的是 700/800 档。想换回 500/600 档前先跑一遍门禁 G44。 */
+  --success: var(--green-800);
+  --success-foreground: var(--gray-0);
+  --warning: var(--amber-800);
+  --warning-foreground: var(--gray-0);
+  --danger: var(--red-700);
+  --danger-foreground: var(--gray-0);
+
+  --border: var(--gray-200);
+  --input: 223 226 232;
+  --ring: var(--indigo-600);
+  --overlay: 15 17 21;
+
+  /* 轻提示（App UI 顶部胶囊）：深色底 + 白字，不随 tone 变色——同一套视觉，靠文案表达结果 */
+  --toast: var(--gray-neutral-950);
+  --toast-foreground: var(--gray-0);
+
+  /* ---------- 形状 ---------- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* 发丝线：真机（iOS / 安卓）都是 2x/3x 屏，0.5px 刚好落在 1 物理像素上，比 1px 更细、更接近原生分隔线。
+   * 用法：App UI 的分隔线用 `border-hairline`（tailwind.config.js 已挂好）；
+   * 控件描边（按钮 / 输入框）仍用 1px（`border`），否则会糊成看不见。 */
+  --hairline: 0.5px;
+
+  --shadow-sm: 0 1px 2px 0 rgb(15 17 21 / 0.06);
+  --shadow-md: 0 4px 12px -2px rgb(15 17 21 / 0.1);
+  --shadow-lg: 0 12px 32px -8px rgb(15 17 21 / 0.18);
+
+  /* ---------- 字体与排版 ---------- */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'HarmonyOS Sans SC', 'PingFang SC',
+    'Noto Sans CJK SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace;
+
+  /* 移动端 H5 字级（12 / 14 / 16 / 20）：取自主流移动端字阶，比照 iOS 的 pt 值整体收 2pt。
+   * 注意：不要直接把 iOS 的 pt（body 17 / headline 17 / title2 22）当 px 用——H5 的 px 视觉上更大，
+   * 照搬会整体偏大 2pt（设计走查反馈）。正文与辅助保持 14 / 12（已是可读性下限附近，不再下调），
+   * 要收紧的是标题档：导航 / 卡片 / 弹层标题 16，全屏最多一处的大标题 / 大数字 20。
+   * 口径见 ui-design-skill 的 references/02-app-ui-mobile-h5.md §1「字级校准」。 */
+  --text-caption: 12px;
+  --leading-caption: 16px;
+  --text-body: 14px;
+  --leading-body: 22px;
+  --text-title: 16px;
+  --leading-title: 22px;
+  --text-display: 20px;
+  --leading-display: 28px;
+
+  /* ---------- 布局尺寸（App UI） ---------- */
+  --navbar-height: 44px;
+  --tabbar-height: 56px;
+  --tap-min: 44px;
+
+  /* ---------- 动效 ---------- */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ---------- 安全区 ----------
+   * --safe-top / --safe-bottom / --safe-left / --safe-right 由入口启动时调
+   * initSafeArea() 写入（真机读壳值、浏览器 / 平台预览用模拟值，见
+   * src/shared/native/safe-area.ts）。这里的 var() 链是 **首帧 / 兜底**：
+   * 壳在每次页面加载完成后还会写 --sat / --sab / --sal / --sar（px），
+   * 在拿到壳值前回落到它们，再退到 env()。 */
+  --safe-top: var(--sat, env(safe-area-inset-top, 0px));
+  --safe-bottom: var(--sab, env(safe-area-inset-bottom, 0px));
+  --safe-left: var(--sal, env(safe-area-inset-left, 0px));
+  --safe-right: var(--sar, env(safe-area-inset-right, 0px));
+}

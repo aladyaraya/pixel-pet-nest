@@ -1,0 +1,16 @@
+{
+  "supported": [
+    "canIUse",
+    "request",
+    "getLocation",
+    "getNetworkType",
+    "setClipboardData",
+    "getClipboardData",
+    "shareText",
+    "hideKeyboard",
+    "setStorage",
+    "getStorage",
+    "removeStorage",
+    "chooseImage"
+  ]
+}

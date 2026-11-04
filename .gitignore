@@ -1,3 +1,22 @@
 node_modules
 dist
+dist-ssr
+.DS_Store
+*.local
+*.log
+.env
 .env.local
+.vite
+
+# 签名证书：dist/ 已忽略，这里忽略源码目录里的私钥，避免误提交
+capsule/signing/*.p12
+capsule/signing/*.jks
+capsule/signing/*.keystore
+
+# 后台真实验收的报告与截图：本地证据，不进交付产物（G60 只查工作区里的这份报告）
+/.admin-browser-report/
+
+# 视觉验收签核：本地证据，可能含业务信息，不提交
+/.admin-visual-review.json
+
+/pwa-build-context.json
