@@ -25,3 +25,7 @@ npm run build      # 构建 native 壳侧 bundle（dist/client/）
 ```
 
 真机验证：安装包含本 bundle 的 APK，开始一局后把手机正面朝下，观察背屏蛋的裂纹推进；到期短振后翻回主屏揭晓。
+
+## 交接
+
+二次开发请先读 `docs/handover.md`（代码地图、核心机制、待真机验证项与下一步）；PRD 原件在 `docs/这颗蛋快孵出来了-PRD.docx`，验收记录在 `docs/acceptance.md`。
