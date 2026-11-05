@@ -85,4 +85,4 @@ npm run test:recovery -- http://127.0.0.1:5179/ # 读档保护与后台翻面回
 
 二次开发先读 `docs/handover.md`。本轮已确认的需求与实现落点、数据兼容规则记录在该文档中；原始 `docs/这颗蛋快孵出来了-PRD.docx` 保留为 V0.1 历史需求，不改写原件。新旧需求有差异时，以本轮确认的规则为准。
 
-本次新仓库交付的测试结果、最终修复与待做事项见 [最终验收](docs/final-acceptance.md)。运行入口、设备契约、签名与接手顺序见 [交接文档](docs/handover.md)。根目录 `egg-handover.bundle` 是旧版 Git 历史包，不是当前 APK 或本次交付产物；当前源码以本仓库 `main` 分支为准。
+本次新仓库交付的测试结果、最终修复与待做事项见 [最终验收](docs/final-acceptance.md)。运行入口、设备契约、签名与接手顺序见 [交接文档](docs/handover.md)。旧版 `egg-handover.bundle` 历史包已从当前仓库移除，可在历史提交中查看；它不是 APK，当前源码以本仓库 `main` 分支为准。
