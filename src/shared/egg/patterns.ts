@@ -1,168 +1,137 @@
-/* =============================================================================
- * 17×23 点阵图案库：蛋的阶段形态（背屏与主屏预览共用同一份图案）。
- * 图案按 17 列 × 23 行绘制，'#' 点亮、'.' 熄灭；四周留安全边距。
- * 阶段（PRD 03 章）：
- *   等待 0–50%   完整蛋壳（轻晃：2 帧交替、约每秒 1 帧）
- *   快了 50–85% 一条较粗裂纹
- *   快出来了 85–100% 裂纹扩展、蛋壳上部略偏移
- *   可揭晓 到期后 裂开的蛋壳 + 问号
- * ========================================================================== */
+/** 背屏关键帧：标准蛋、沿壳体发展的裂纹、上盖和碗状下壳。 */
+import { carveLine, patternToFrame, shiftFrame } from './matrix'
+import type { EggPhase, MatrixFrame } from './types'
+import type { ReactionKind } from './motion'
 
-import { carveLine, patternToFrame, shiftFrame, drawLine } from './matrix'
-import type { MatrixFrame } from './types'
-
-/** 完整蛋壳（居中的蛋形，上下留安全边距） */
+/** 主体 13×18，中轴对称、下部饱满；最后两行圆收，不形成柄状细柱。 */
 const EGG_FULL = [
   '.................',
   '.................',
   '.................',
+  '.......###.......',
   '......#####......',
   '.....#######.....',
+  '.....#######.....',
   '....#########....',
-  '....##########...',
-  '...############..',
-  '...############..',
-  '...############..',
-  '...############..',
-  '...############..',
-  '...############..',
-  '...############..',
-  '....##########...',
+  '....#########....',
+  '...###########...',
+  '...###########...',
+  '..#############..',
+  '..#############..',
+  '..#############..',
+  '..#############..',
+  '..#############..',
+  '...###########...',
+  '...###########...',
   '....#########....',
   '.....#######.....',
-  '......#####......',
-  '......####.......',
-  '......####.......',
-  '......####.......',
+  '.......###.......',
   '.................',
   '.................',
 ]
 
-/** 裂开的蛋壳：左右两半，中间留给问号 */
-const EGG_SHELL_BROKEN = [
+const EGG_OPEN = [
   '.................',
   '.................',
-  '.#####.....#####.',
-  '.#####.....#####.',
-  '.######...######.',
-  '.######...######.',
-  '.#######.#######.',
-  '.#######.#######.',
-  '.#######.#######.',
-  '.#######.#######.',
-  '.#######.#######.',
-  '.#######.#######.',
-  '.#######.#######.',
-  '.######...######.',
-  '.######...######.',
-  '.#####.....#####.',
-  '.#####.....#####.',
-  '.####.......####.',
-  '.####.......####.',
+  '...###...........',
+  '..#####..........',
+  '.#######.........',
+  '.##.#.##.........',
   '.................',
+  '.......###.......',
+  '......#...#......',
+  '..........#......',
+  '........##.......',
+  '........#........',
   '.................',
+  '........#........',
+  '..#..#..#..#..#..',
+  '..#############..',
+  '...###########...',
+  '...###########...',
+  '....#########....',
+  '.....#######.....',
+  '.......###.......',
   '.................',
   '.................',
 ]
 
-function eggFullFrame(): MatrixFrame {
-  return patternToFrame(EGG_FULL)
-}
-
-/** 快了：一条较粗裂纹（蛋壳上不亮的折线缝隙，2 格宽） */
-function eggCrackFrame(): MatrixFrame {
-  const frame = eggFullFrame()
-  return carveLine(frame, [
-    [10, 4],
-    [11, 6],
-    [9, 8],
-    [10, 10],
-    [9, 12],
-  ], 0)
-}
-
-/** 快出来了：裂纹扩展 + 蛋壳上部略偏移（右上块移位形成错位） */
-function eggAlmostFrame(): MatrixFrame {
-  let frame = eggFullFrame()
-  frame = shiftFrame(frame, 1, 0, { x0: 9, y0: 0, x1: 16, y1: 7 })
-  frame = carveLine(frame, [
-    [12, 3],
-    [10, 5],
-    [12, 7],
-    [10, 9],
-    [11, 12],
-    [9, 14],
-    [10, 17],
-  ], 1)
-  frame = carveLine(frame, [
-    [12, 7],
-    [14, 8],
-  ], 0)
-  return frame
-}
-
-/** 可揭晓：裂开的蛋壳 + 问号 */
-function eggBrokenFrame(): MatrixFrame {
-  let frame = patternToFrame(EGG_SHELL_BROKEN)
-  frame = drawLine(frame, [
-    [6, 4],
-    [9, 4],
-    [9, 6],
-    [8, 7],
-    [7, 8],
-    [7, 9],
-    [8, 10],
-    [9, 11],
-  ])
-  frame = drawLine(frame, [
-    [8, 13],
-    [8, 14],
-  ])
-  return frame
-}
-
-let cached: {
-  waiting: MatrixFrame
-  wobble: MatrixFrame
-  cracking: MatrixFrame
-  almost: MatrixFrame
-  ready: MatrixFrame
-  readyAlt: MatrixFrame
-} | null = null
-
-function build(): NonNullable<typeof cached> {
-  const waiting = eggFullFrame()
-  const ready = eggBrokenFrame()
+function build() {
+  const waiting = patternToFrame(EGG_FULL)
+  const cracking = carveLine(waiting, [[9, 5], [8, 7], [10, 9], [8, 11]], 0)
+  const almost = carveLine(cracking, [[8, 11], [6, 12], [8, 14], [6, 16]], 0)
+  const ready = patternToFrame(EGG_OPEN)
   return {
     waiting,
-    // 轻晃 2 帧：蛋左右各偏 1 格（设备侧动画不可用时由 App 定时交替提交）
     wobble: shiftFrame(waiting, 1, 0),
-    cracking: eggCrackFrame(),
-    almost: eggAlmostFrame(),
+    cracking,
+    almost,
     ready,
-    // 破壳 2 帧的第二帧：两半壳再各向外让 1 格，露出更大的问号空间
-    readyAlt: shiftFrame(ready, -1, 0, { x0: 0, y0: 0, x1: 8, y1: 22 }),
+    readyAlt: shiftFrame(ready, 1, -1, { x0: 0, y0: 0, x1: 7, y1: 5 }),
   }
 }
+let cached: ReturnType<typeof build> | null = null
 
-/** 蛋的阶段图案（懒构建并缓存） */
-export function eggFrames(): NonNullable<typeof cached> {
+export function eggFrames(): ReturnType<typeof build> {
   if (!cached) cached = build()
   return cached
 }
 
-/** 按阶段取背屏主帧 */
+/** 保留旧调用接口。revealed 的角色帧由 petFrame 提供。 */
 export function frameForPhase(phase: string): MatrixFrame {
   const frames = eggFrames()
-  switch (phase) {
-    case 'cracking':
-      return frames.cracking
-    case 'almost':
-      return frames.almost
-    case 'ready':
-    case 'revealed':
-      return frames.ready
-    default:
-      return frames.waiting
+  if (phase === 'cracking') return frames.cracking
+  if (phase === 'almost') return frames.almost
+  if (phase === 'ready' || phase === 'revealed') return frames.ready
+  return frames.waiting
+}
+
+/** 最多三帧，最后回到本阶段静帧；调用方负责低频调度与取消。 */
+export function phaseAnimationFrames(phase: EggPhase): MatrixFrame[] {
+  const frames = eggFrames()
+  const base = frameForPhase(phase)
+  if (phase === 'waiting') return [base, frames.wobble, base]
+  if (phase === 'ready' || phase === 'revealed') return [base, frames.readyAlt, base]
+  return [base, shiftFrame(base, 1, 0), base]
+}
+
+const idleCache = new Map<EggPhase, MatrixFrame[][]>()
+const reactionCache = new Map<string, MatrixFrame[]>()
+
+/** 只移动下壳时，开放上盖不会撞到画布边缘。 */
+function sway(base: MatrixFrame, phase: EggPhase, dx: number): MatrixFrame {
+  return shiftFrame(base, dx, 0, phase === 'ready' || phase === 'revealed'
+    ? { x0: 2, y0: 6, x1: 15, y1: 21 } : undefined)
+}
+
+/** 自主动作交替为轻晃、轻轻起伏；始终回到当前阶段的静帧。 */
+export function eggIdleVariants(phase: EggPhase): MatrixFrame[][] {
+  const cached = idleCache.get(phase)
+  if (cached) return cached
+  const base = frameForPhase(phase)
+  const variants = [
+    [sway(base, phase, 1), sway(base, phase, -1), base],
+    [shiftFrame(base, 0, -1), shiftFrame(base, 0, 1), base],
+  ]
+  idleCache.set(phase, variants)
+  return variants
+}
+
+/** 轻点回应小幅弹动；长按回应壳边闪光。两者都不会改变裂纹阶段。 */
+export function eggReactionFrames(phase: EggPhase, kind: ReactionKind): MatrixFrame[] {
+  const key = `${phase}:${kind}`
+  const cached = reactionCache.get(key)
+  if (cached) return cached
+  const base = frameForPhase(phase)
+  const glint = (y: number) => {
+    const frame = [...base]
+    frame[y * 17 + 1] = 255
+    frame[y * 17 + 15] = 255
+    return frame
   }
+  const frames = kind === 'tap'
+    ? [shiftFrame(base, 0, -1), sway(base, phase, 1), base]
+    : [glint(8), glint(6), base]
+  reactionCache.set(key, frames)
+  return frames
 }

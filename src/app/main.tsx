@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
 
 import '@/shared/styles/globals.css'
+import '@/shared/styles/egg-art.css'
+import '@/shared/styles/egg-pages.css'
 
 import { AuthProvider } from '@/shared/auth/AuthProvider'
 import { NativeProvider } from '@/shared/native/NativeProvider'

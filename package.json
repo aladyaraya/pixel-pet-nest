@@ -15,7 +15,13 @@
     "preview": "node scripts/ensure-deps.mjs && vite preview",
     "typecheck": "node scripts/ensure-deps.mjs && tsc --noEmit",
     "deps": "node scripts/ensure-deps.mjs",
-    "signing:debug": "node scripts/gen-debug-signing.mjs"
+    "signing:debug": "node scripts/gen-debug-signing.mjs",
+    "test:e2e": "node scripts/acceptance-web.mjs",
+    "test:pixel": "node scripts/acceptance-pixel.mjs",
+    "test:feedback": "node scripts/acceptance-feedback.mjs",
+    "test:recovery": "node scripts/acceptance-recovery.mjs",
+    "test:scheduler": "node --test src/shared/egg/backScreenScheduler.test.mjs",
+    "test:back-screen": "node --test src/shared/egg/backScreen.test.mjs src/shared/egg/backScreenScheduler.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.1",
@@ -37,6 +43,7 @@
     "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.6.1",
+    "playwright": "1.64.1",
     "postcss": "^8.5.28",
     "sharp": "0.34.5",
     "stepai-vite-config": "https://ai-tos-external.tos-cn-shanghai.volces.com/ai-builder-assets/vite-preview-dev-plugin/stepai-vite-config-0.1.0.tgz",

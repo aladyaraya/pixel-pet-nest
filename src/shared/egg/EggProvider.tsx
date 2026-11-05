@@ -5,7 +5,7 @@
  *   - 每次进入先读记录，再计算当前阶段，最后更新主屏和背屏；
  *   - 恢复时跳过已过去的中间阶段；连续多次触发到期只提示一次；
  *   - 前台连续运行用单调时钟校验，设备时间跳变时按已运行时长重算；
- *   - 背屏「恢复只提交当前阶段，丢弃过期请求」（提交带序号，过期结果丢弃）；
+ *   - 背屏单通道串行提交，恢复只呈现当前目标，丢弃过期的待发命令；
  *   - 揭晓与收藏计数在同一份记录里更新，串行写入成功后才算收藏完成。
  * ========================================================================== */
 
@@ -15,7 +15,7 @@ import {
   useContext,
   useEffect,
   useMemo,
- useRef,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -31,24 +31,29 @@ import {
   wakeBackScreen,
   type BackScreenMode,
 } from './backScreen'
-import { sfx, setSoundEnabled } from './audio'
+import { sfx, setSoundEnabled, setAudioForeground, unlockAudio } from './audio'
+import { BackScreenScheduler } from './backScreenScheduler'
 import {
   defaultRecord,
   loadRecord,
+  RecordMigrationError,
   saveRecord,
 } from './storage'
 import { PET_BY_ID, petFrame, pickPetId, type Pet } from './pets'
-import { eggFrames, frameForPhase } from './patterns'
+import { petIdleVariants, petReactionFrames } from './petMotionFrames'
+import { eggFrames, eggIdleVariants, eggReactionFrames, frameForPhase } from './patterns'
+import type { ReactionKind } from './motion'
 import {
   DEFAULT_DURATION_MS,
-  DEMO_DURATION_MS,
   formatDuration,
+  isValidDuration,
   PHASE_BOUNDARIES,
-  type EggMode,
+  tierForDuration,
   type EggPhase,
   type EggRecord,
   type EggSession,
   type EggSettings,
+  type MatrixFrame,
 } from './types'
 
 /** 翻面判定阈值（加速度 z 轴，m/s²）：正面朝下约 -9.8，正面朝上约 +9.8 */
@@ -59,11 +64,12 @@ const FLIP_POLL_MS = 400
 const KEEP_ON_AFTER_READY_MS = 30_000
 /** 时钟跳变判定阈值 */
 const CLOCK_JUMP_MS = 3_000
+const REVEAL_TRANSITION_MS = 1_200
+const DUE_VIBRATION_GAP_MS = 250
 
 export function computePhase(session: EggSession, now: number): EggPhase {
   if (session.phase === 'revealed' || session.revealedAt != null) return 'revealed'
-  const elapsed = now - session.startedAt
-  const progress = session.durationMs > 0 ? elapsed / session.durationMs : 1
+  const progress = progressOf(session, now)
   if (progress >= 1) return 'ready'
   if (progress >= PHASE_BOUNDARIES.almost) return 'almost'
   if (progress >= PHASE_BOUNDARIES.cracking) return 'cracking'
@@ -75,7 +81,7 @@ export function remainingMsOf(session: EggSession, now: number): number {
 }
 
 export function progressOf(session: EggSession, now: number): number {
-  const raw = session.durationMs > 0 ? (now - session.startedAt) / session.durationMs : 1
+  const raw = session.durationMs > 0 ? 1 - remainingMsOf(session, now) / session.durationMs : 1
   return Math.min(1, Math.max(0, raw))
 }
 
@@ -84,6 +90,13 @@ export type BackScreenStatus = 'unknown' | 'ok' | 'unavailable' | 'failed'
 export interface EggContextValue {
   /** 本地记录是否已加载完成 */
   loaded: boolean
+  /** 读取失败时保留原记录，所有写入暂停。 */
+  loadError: string | null
+  retryLoad: () => void
+  starting: boolean
+  saving: boolean
+  /** 仅新鲜揭晓的短暂破壳过渡；刷新不会重播。 */
+  revealing: boolean
   record: EggRecord
   settings: EggSettings
   session: EggSession | null
@@ -91,20 +104,28 @@ export interface EggContextValue {
   phase: EggPhase | null
   remainingMs: number
   progress: number
-  /** 当前局角色；未揭晓时也对内可用（页面不得提前展示） */
+  /** 揭晓过渡结束后才公开当前局角色。 */
   pet: Pet | null
   backScreenMode: BackScreenMode
   backScreenStatus: BackScreenStatus
+  /** 当前背屏目标的主屏预览，不代表硬件已成功接收。 */
+  backScreenFrame: MatrixFrame | null
   /** 「这次收藏还没保存」等存储告警 */
   storageWarning: string | null
   /** 减少动态（系统偏好）：不做帧动画 */
   reducedMotion: boolean
+  /** 页面可见且原生宿主处于前台，供纯展示动作暂停使用。 */
+  isForeground: boolean
   collectionCount: number
-  startSession: (mode: EggMode, durationMs?: number) => Promise<void>
+  startSession: (durationMs?: number) => Promise<void>
   reveal: () => Promise<void>
   abortSession: () => Promise<void>
   retrySave: () => Promise<void>
   updateSettings: (patch: Partial<EggSettings>) => void
+  selectBackScreenPet: (petId: string | null) => Promise<void>
+  /** 仅表示临时动作被接受，不代表设备已显示。 */
+  reactToBackScreenPet: (petId: string, kind: ReactionKind) => boolean
+  reactToBackScreenEgg: (sessionId: string, kind: ReactionKind) => boolean
   /** 背屏失败后的重试入口 */
   retryBackScreen: () => void
 }
@@ -115,137 +136,297 @@ export function EggProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast()
   const [record, setRecord] = useState<EggRecord>(defaultRecord)
   const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const [starting, setStarting] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [revealing, setRevealing] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const [backScreenMode, setBackScreenMode] = useState<BackScreenMode>('unavailable')
   const [backScreenStatus, setBackScreenStatus] = useState<BackScreenStatus>('unknown')
+  const [backScreenFrame, setBackScreenFrame] = useState<MatrixFrame | null>(null)
   const [storageWarning, setStorageWarning] = useState<string | null>(null)
   const [reducedMotion, setReducedMotion] = useState(false)
+  const [isForeground, setIsForeground] = useState(() => document.visibilityState !== 'hidden')
 
   const recordRef = useRef(record)
-  recordRef.current = record
-  const submitSeq = useRef(0)
+  const loadedRef = useRef(false)
+  const loadGeneration = useRef(0)
+  const pendingStart = useRef<Promise<void> | null>(null)
+  const pendingWrites = useRef(0)
+  const writeSeq = useRef(0)
   const readyNotified = useRef(false)
-  const wobbleTimer = useRef<number | null>(null)
-  const wobbleOn = useRef(false)
+  const dueVibrationTail = useRef<{ sessionId: string; timer: number } | null>(null)
+  const storageWarningRef = useRef<string | null>(null)
+  const reducedMotionRef = useRef(false)
+  const revealingSession = useRef<string | null>(null)
+  const revealTimer = useRef<number | null>(null)
+  const nativeForeground = useRef(true)
+  const pageActive = useRef(true)
+  const foregroundRef = useRef(isForeground)
+  const backScreenEngaged = useRef(false)
+  const schedulerRef = useRef<BackScreenScheduler | null>(null)
   const keepScreenOnTimer = useRef<number | null>(null)
   const monoBase = useRef<{ wall: number; mono: number } | null>(null)
   const flipStop = useRef(false)
+  const flipGeneration = useRef(0)
 
   const session = record.session
   const phase = session ? computePhase(session, now) : null
-  const pet = session ? PET_BY_ID[session.petId] ?? null : null
+  const pet = session && phase === 'revealed' && !revealing ? PET_BY_ID[session.petId] ?? null : null
 
-  const persist = useCallback(async (next: EggRecord) => {
-    setRecord(next)
+  const cancelDueVibrationTail = useCallback(() => {
+    if (dueVibrationTail.current) window.clearTimeout(dueVibrationTail.current.timer)
+    dueVibrationTail.current = null
+  }, [])
+
+  const vibrateDue = useCallback((sessionId: string) => {
+    cancelDueVibrationTail()
+    // 到期振动独立于音效开关；保留原有后台第一发行为，不依赖设备回执排第二发。
+    void invokeNative('vibrateShort', { type: 'medium' }).catch(() => undefined)
+    if (!foregroundRef.current || document.visibilityState === 'hidden') return
+    const tail = { sessionId, timer: 0 }
+    tail.timer = window.setTimeout(() => {
+      if (dueVibrationTail.current !== tail) return
+      dueVibrationTail.current = null
+      const current = recordRef.current.session
+      if (!loadedRef.current || !foregroundRef.current || document.visibilityState === 'hidden' ||
+        current?.sessionId !== sessionId || computePhase(current, Date.now()) !== 'ready') return
+      void invokeNative('vibrateShort', { type: 'medium' }).catch(() => undefined)
+    }, DUE_VIBRATION_GAP_MS)
+    dueVibrationTail.current = tail
+  }, [cancelDueVibrationTail])
+
+  /* 用户手势只负责解锁音频；恢复前台不会补播以前未能播放的音效。 */
+  useEffect(() => {
+    const unlockFromGesture = (event: Event) => {
+      if (!foregroundRef.current || document.visibilityState === 'hidden') return
+      if (event.type === 'keydown' && (event as KeyboardEvent).repeat) return
+      unlockAudio()
+    }
+    setAudioForeground(foregroundRef.current && document.visibilityState !== 'hidden')
+    document.addEventListener('pointerdown', unlockFromGesture, true)
+    document.addEventListener('keydown', unlockFromGesture, true)
+    document.addEventListener('click', unlockFromGesture, true)
+    return () => {
+      document.removeEventListener('pointerdown', unlockFromGesture, true)
+      document.removeEventListener('keydown', unlockFromGesture, true)
+      document.removeEventListener('click', unlockFromGesture, true)
+      cancelDueVibrationTail()
+      setAudioForeground(false)
+    }
+  }, [cancelDueVibrationTail])
+
+  if (!schedulerRef.current) {
+    schedulerRef.current = new BackScreenScheduler({
+      commands: { wake: wakeBackScreen, frame: pushFrame, clear: clearFrame, sleep: sleepBackScreen },
+      onFrame: setBackScreenFrame,
+      onPending: () => setBackScreenStatus('unknown'),
+      onResult: (result) => {
+        setBackScreenStatus(result.ok ? 'ok' : result.reason === 'unavailable' ? 'unavailable' : 'failed')
+        if (result.ok) setBackScreenMode(result.simulated ? 'simulated' : 'device')
+      },
+    })
+  }
+
+  const publishStorageWarning = useCallback((warning: string | null) => {
+    storageWarningRef.current = warning
+    setStorageWarning(warning)
+  }, [])
+
+  const saveSnapshot = useCallback(async (next: EggRecord, warning: string) => {
+    if (!loadedRef.current) return false
+    const seq = ++writeSeq.current
+    pendingWrites.current += 1
+    setSaving(true)
     try {
       await saveRecord(next)
-      setStorageWarning(null)
+      if (seq === writeSeq.current) publishStorageWarning(null)
+      return true
     } catch (error) {
       nativeLog.w('egg', 'record save failed', String(error))
-      setStorageWarning('这次收藏还没保存，请重试')
+      if (seq === writeSeq.current) publishStorageWarning(warning)
+      return false
+    } finally {
+      pendingWrites.current -= 1
+      setSaving(pendingWrites.current > 0)
     }
+  }, [publishStorageWarning])
+
+  const persist = useCallback((next: EggRecord, warning = '进度与设置还没保存，请重试') => {
+    if (!loadedRef.current) return Promise.resolve(false)
+    recordRef.current = next
+    setRecord(next)
+    return saveSnapshot(next, warning)
+  }, [saveSnapshot])
+
+  /* 先校正再发布时间，避免页面短暂进入错误 ready 阶段并触发振动/揭晓。 */
+  const refreshNow = useCallback(() => {
+    const wall = Date.now()
+    const mono = performance.now()
+    const current = recordRef.current.session
+    if (current && current.phase !== 'revealed') {
+      const base = monoBase.current
+      if (!base) {
+        monoBase.current = { wall, mono }
+      } else {
+        const drift = wall - (base.wall + mono - base.mono)
+        if (Math.abs(drift) > CLOCK_JUMP_MS) {
+          monoBase.current = { wall, mono }
+          // 平移原始时间轴，连续多次跳变仍保留全部已经等待的时间。
+          void persist({
+            ...recordRef.current,
+            session: {
+              ...current,
+              startedAt: current.startedAt + drift,
+              deadlineAt: current.deadlineAt + drift,
+            },
+          })
+          toast({ title: '检测到系统时间变化，已按实际等待时长继续', tone: 'warning' })
+        }
+      }
+    }
+    setNow(wall)
+    return wall
+  }, [persist, toast])
+
+  const retryLoad = useCallback(() => {
+    if (loadedRef.current) return
+    loadGeneration.current += 1
+    loadedRef.current = false
+    setLoaded(false)
+    setLoadError(null)
+    setLoadAttempt(attempt => attempt + 1)
   }, [])
 
   /* ---------- 初始化：读记录 + 背屏模式 + 减少动态偏好 ---------- */
   useEffect(() => {
     let cancelled = false
+    const generation = loadGeneration.current
+    const isCancelled = () => cancelled || generation !== loadGeneration.current
+    loadedRef.current = false
+    setLoaded(false)
+    setLoadError(null)
+    // 背屏服务可能迟迟不返回；本地进度和前屏不依赖它完成连接。
+    void resolveBackScreenMode().then((mode) => {
+      if (!isCancelled()) setBackScreenMode(mode)
+    }).catch(() => {
+      if (!isCancelled()) setBackScreenMode('unavailable')
+    })
     ;(async () => {
-      const mode = await resolveBackScreenMode()
-      if (!cancelled) setBackScreenMode(mode)
+      let privacyAgreed: boolean | null = null
       try {
         const privacy = await invokeNative('privacy.getStatus')
-        if (!cancelled && privacy && privacy.agreed === false) {
-          const next: EggRecord = {
-            ...recordRef.current,
-            settings: { ...recordRef.current.settings, privacyAgreed: false },
-          }
-          setRecord(next)
-          recordRef.current = next
-        } else if (!cancelled && privacy && privacy.agreed === true && recordRef.current.settings.privacyAgreed === null) {
-          const next: EggRecord = {
-            ...recordRef.current,
-            settings: { ...recordRef.current.settings, privacyAgreed: true },
-          }
-          setRecord(next)
-          recordRef.current = next
-        }
+        if (typeof privacy?.agreed === 'boolean') privacyAgreed = privacy.agreed
       } catch {
         // 查询失败不影响主流程
       }
+      if (isCancelled()) return
+      let next: EggRecord
       try {
-        const loadedRecord = await loadRecord()
-        if (cancelled) return
-        if (loadedRecord) {
-          setRecord(loadedRecord)
-          recordRef.current = loadedRecord
-          setSoundEnabled(loadedRecord.settings.sound)
-        }
+        next = await loadRecord() ?? defaultRecord()
       } catch (error) {
-        if (error instanceof BridgeError && error.code === 'privacy') {
-          const next: EggRecord = {
-            ...recordRef.current,
-            settings: { ...recordRef.current.settings, privacyAgreed: false },
-          }
-          setRecord(next)
-          recordRef.current = next
+        if (isCancelled()) return
+        if (error instanceof RecordMigrationError) {
+          next = error.record
+          publishStorageWarning(error.message)
+        } else {
+          setLoadError(error instanceof BridgeError && error.code === 'privacy'
+            ? '请先完成隐私授权，再重新读取本机记录。'
+            : '暂时无法读取进度与收藏，原有记录会保留。请重试。')
+          return
         }
       }
-      if (!cancelled) setLoaded(true)
+      if (isCancelled()) return
+      if (privacyAgreed !== null) next.settings = { ...next.settings, privacyAgreed }
+      recordRef.current = next
+      setRecord(next)
+      setSoundEnabled(next.settings.sound)
+      readyNotified.current = next.session?.hintedPhases.includes('ready') ?? false
+      const wall = Date.now()
+      monoBase.current = { wall, mono: performance.now() }
+      setNow(wall)
+      loadedRef.current = true
+      setLoadError(null)
+      setLoaded(true)
     })()
     const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)')
     if (mq) {
+      reducedMotionRef.current = mq.matches
       setReducedMotion(mq.matches)
-      const onChange = (e: MediaQueryListEvent) => setReducedMotion(e.matches)
+      const onChange = (e: MediaQueryListEvent) => {
+        reducedMotionRef.current = e.matches
+        setReducedMotion(e.matches)
+      }
       mq.addEventListener?.('change', onChange)
       return () => {
         cancelled = true
+        loadedRef.current = false
         mq.removeEventListener?.('change', onChange)
       }
     }
     return () => {
       cancelled = true
+      loadedRef.current = false
     }
+  }, [loadAttempt, publishStorageWarning])
+
+  /* ---------- 背屏目标：未揭晓局 > 当前选择；历史揭晓不抢回选择 ---------- */
+  const syncBackScreen = useCallback((release = false) => {
+    if (!loadedRef.current) return
+    const sampledNow = refreshNow()
+    const current = recordRef.current
+    const currentSession = current.session
+    const currentPhase = currentSession ? computePhase(currentSession, sampledNow) : null
+    const animate = !reducedMotionRef.current
+    if (currentSession && revealingSession.current === currentSession.sessionId) {
+      backScreenEngaged.current = true
+      schedulerRef.current!.setScene({
+        key: `${currentSession.sessionId}:breaking`, frame: eggFrames().readyAlt,
+      })
+    } else if (currentSession && currentPhase && currentPhase !== 'revealed') {
+      backScreenEngaged.current = true
+      schedulerRef.current!.setScene({
+        key: `${currentSession.sessionId}:${currentPhase}:${animate}`,
+        frame: frameForPhase(currentPhase), idleVariants: eggIdleVariants(currentPhase), animate,
+      })
+    } else {
+      const petId = current.settings.backScreenPetId
+      if (petId && Object.prototype.hasOwnProperty.call(PET_BY_ID, petId) && current.collection[petId]?.count > 0) {
+        backScreenEngaged.current = true
+        schedulerRef.current!.setScene({
+          key: `pet:${petId}:${animate}`, frame: petFrame(petId), idleVariants: petIdleVariants(petId), animate,
+        })
+      } else if (release || backScreenEngaged.current) {
+        // 没有展示对象时沿用原有结束流程，不在首次空记录加载时改变系统背屏。
+        schedulerRef.current!.setScene({ key: 'idle', frame: null })
+      }
+    }
+  }, [refreshNow])
+
+  useEffect(() => {
+    syncBackScreen()
+  }, [loaded, session?.sessionId, phase, record.settings.backScreenPetId, revealing, reducedMotion, syncBackScreen])
+
+  const cancelRevealTransition = useCallback(() => {
+    if (revealTimer.current !== null) window.clearTimeout(revealTimer.current)
+    revealTimer.current = null
+    revealingSession.current = null
+    setRevealing(false)
   }, [])
 
-  /* ---------- 背屏提交：带序号，过期请求丢弃 ---------- */
-  const submitPhaseFrame = useCallback(
-    async (target: EggPhase, petId: string) => {
-      submitSeq.current += 1
-      const seq = submitSeq.current
-      const frame = target === 'revealed' ? petFrame(petId) : frameForPhase(target)
-      const result = await pushFrame(frame)
-      if (seq !== submitSeq.current) return
-      setBackScreenStatus(result.ok ? 'ok' : 'failed')
-      if (result.ok && result.simulated) setBackScreenMode('simulated')
-    },
-    [],
-  )
+  useEffect(() => () => {
+    if (revealTimer.current !== null) window.clearTimeout(revealTimer.current)
+    revealTimer.current = null
+    revealingSession.current = null
+  }, [])
 
   /* ---------- 定时器：按到期时间刷新 ---------- */
   useEffect(() => {
     if (!session || phase === 'revealed') return
-    const timer = window.setInterval(() => setNow(Date.now()), 250)
+    const timer = window.setInterval(refreshNow, 250)
     return () => window.clearInterval(timer)
-  }, [session, phase])
-
-  /* ---------- 单调时钟校验：设备时间跳变时按已运行时长重算 ---------- */
-  useEffect(() => {
-    if (!session || phase === 'revealed') return
-    if (!monoBase.current) monoBase.current = { wall: Date.now(), mono: performance.now() }
-    const base = monoBase.current
-    const expectedWall = base.wall + (performance.now() - base.mono)
-    const drift = Date.now() - expectedWall
-    if (Math.abs(drift) > CLOCK_JUMP_MS) {
-      const elapsed = performance.now() - base.mono
-      const nextSession: EggSession = {
-        ...session,
-        deadlineAt: Date.now() + Math.max(0, session.durationMs - elapsed),
-      }
-      monoBase.current = { wall: Date.now(), mono: performance.now() }
-      void persist({ ...recordRef.current, session: nextSession })
-      toast({ title: '检测到系统时间变化，已按实际等待时长继续', tone: 'warning' })
-    }
-  }, [session, phase, now, persist, toast])
+  }, [session, phase, refreshNow])
 
   /* ---------- 亮屏保持 ---------- */
   useEffect(() => {
@@ -273,197 +454,239 @@ export function EggProvider({ children }: { children: ReactNode }) {
     }
   }, [session, phase])
 
-  /* ---------- 阶段变化：文案 / 音效 / 振动 / 背屏 ---------- */
+  /* ---------- 阶段变化：文案 / 音效 / 振动 ---------- */
   useEffect(() => {
     if (!session || !loaded) return
-    const current = computePhase(session, Date.now())
-    const hinted = session.hintedPhases
+    const sampledNow = refreshNow()
+    const currentSession = recordRef.current.session
+    if (!currentSession || currentSession.sessionId !== session.sessionId) return
+    const current = computePhase(currentSession, sampledNow)
+    const hinted = currentSession.hintedPhases
 
     if (current === 'ready' && !readyNotified.current) {
       readyNotified.current = true
       const dueToast = () => toast({ title: '孵好了，翻过来看看。', tone: 'success' })
       dueToast()
       if (recordRef.current.settings.sound) sfx.due()
-      try {
-        void invokeNative('vibrateShort', { type: 'medium' })
-      } catch {
-        // 预览环境无振动
-      }
+      vibrateDue(currentSession.sessionId)
     }
 
     if (!hinted.includes(current) && current !== 'revealed') {
-      const nextSession: EggSession = { ...session, phase: current, hintedPhases: [...hinted, current] }
+      const nextSession: EggSession = { ...currentSession, phase: current, hintedPhases: [...hinted, current] }
       void persist({ ...recordRef.current, session: nextSession })
       if (current === 'waiting') {
-        toast({ title: `${formatDuration(session.durationMs)}后，看看里面是谁。` })
+        toast({ title: `${formatDuration(currentSession.durationMs)}后，看看里面是谁。` })
       } else if (current === 'cracking') {
         toast({ title: '里面好像动了一下。' })
         if (recordRef.current.settings.sound) sfx.stage()
       }
     }
 
-    if (current !== 'revealed') {
-      void submitPhaseFrame(current, session.petId)
-    }
-  }, [session, phase, loaded, persist, submitPhaseFrame, toast])
-
-  /* ---------- 轻晃动画：等待阶段每 8 秒两帧交替（减少动态时跳过） ---------- */
-  useEffect(() => {
-    if (phase !== 'waiting' || reducedMotion || !session) return
-    const tick = async () => {
-      wobbleOn.current = !wobbleOn.current
-      submitSeq.current += 1
-      const seq = submitSeq.current
-      const frame = wobbleOn.current ? eggFrames().wobble : eggFrames().waiting
-      const result = await pushFrame(frame)
-      if (seq !== submitSeq.current) return
-      setBackScreenStatus(result.ok ? 'ok' : 'failed')
-    }
-    wobbleTimer.current = window.setInterval(tick, 1000)
-    return () => {
-      if (wobbleTimer.current) window.clearInterval(wobbleTimer.current)
-      wobbleTimer.current = null
-    }
-  }, [phase, reducedMotion, session])
+  }, [session, phase, loaded, persist, refreshNow, toast, vibrateDue])
 
   /* ---------- 生命周期：回前台只提交当前阶段 ---------- */
   useEffect(() => {
     let offShow: (() => void) | undefined
     let offHide: (() => void) | undefined
+    let cancelled = false
+    const updateForeground = () => {
+      const foreground = nativeForeground.current && pageActive.current && document.visibilityState !== 'hidden'
+      foregroundRef.current = foreground
+      setIsForeground(foreground)
+      setAudioForeground(foreground)
+      if (foreground) {
+        // 先从记录重算目标，再恢复通道，不补播离开期间的动画。
+        syncBackScreen()
+        schedulerRef.current!.resume()
+        const current = recordRef.current.session
+        if (current && computePhase(current, Date.now()) === 'ready' && recordRef.current.settings.flipReveal) {
+          flipStop.current = false
+        }
+      } else {
+        cancelDueVibrationTail()
+        flipStop.current = true
+        flipGeneration.current += 1
+        schedulerRef.current!.suspend()
+      }
+    }
+    const onPageHide = () => {
+      pageActive.current = false
+      updateForeground()
+    }
+    const onPageShow = () => {
+      pageActive.current = true
+      updateForeground()
+    }
+    document.addEventListener('visibilitychange', updateForeground)
+    window.addEventListener('pagehide', onPageHide)
+    window.addEventListener('pageshow', onPageShow)
+    updateForeground()
     ;(async () => {
       try {
         offShow = await onNativeEvent('appShow', () => {
-          setNow(Date.now())
-          const current = recordRef.current.session
-          if (current) {
-            const next = computePhase(current, Date.now())
-            if (next !== 'revealed') void submitPhaseFrame(next, current.petId)
-          }
+          nativeForeground.current = true
+          updateForeground()
         })
+        if (cancelled) {
+          offShow()
+          return
+        }
         offHide = await onNativeEvent('appHide', () => {
-          flipStop.current = true
+          nativeForeground.current = false
+          updateForeground()
         })
+        if (cancelled) offHide()
       } catch {
         // 浏览器预览没有事件通道，忽略
       }
     })()
     return () => {
+      cancelled = true
       offShow?.()
       offHide?.()
+      document.removeEventListener('visibilitychange', updateForeground)
+      window.removeEventListener('pagehide', onPageHide)
+      window.removeEventListener('pageshow', onPageShow)
+      schedulerRef.current!.suspend()
+      cancelDueVibrationTail()
+      setAudioForeground(false)
+      foregroundRef.current = false
       flipStop.current = true
     }
-  }, [submitPhaseFrame])
+  }, [syncBackScreen, cancelDueVibrationTail])
 
   /* ---------- 动作：开始一局 ---------- */
   const startSession = useCallback(
-    async (mode: EggMode, durationMs?: number) => {
-      const nowTs = Date.now()
-      const chosen =
-        mode === 'demo'
-          ? DEMO_DURATION_MS
-          : Math.max(1_000, Math.round(durationMs ?? recordRef.current.settings.lastDurationMs ?? DEFAULT_DURATION_MS))
-      const nextSession: EggSession = {
-        sessionId: `egg_${nowTs.toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-        mode,
-        durationMs: chosen,
-        startedAt: nowTs,
-        deadlineAt: nowTs + chosen,
-        petId: pickPetId(),
-        phase: 'waiting',
-        revealedAt: null,
-        hintedPhases: [],
+    (durationMs?: number): Promise<void> => {
+      if (pendingStart.current) return pendingStart.current
+      if (!loadedRef.current) return Promise.reject(new Error('正在读取本地记录，请稍后'))
+      const chosen = durationMs ?? recordRef.current.settings.lastDurationMs ?? DEFAULT_DURATION_MS
+      if (!isValidDuration(chosen)) return Promise.reject(new RangeError('请选择 1 秒到 180 分钟之间的时长'))
+
+      setStarting(true)
+      const run = async () => {
+        cancelDueVibrationTail()
+        cancelRevealTransition()
+        const nowTs = Date.now()
+        const tier = tierForDuration(chosen)
+        const nextSession: EggSession = {
+          sessionId: `egg_${nowTs.toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+          tier,
+          durationMs: chosen,
+          startedAt: nowTs,
+          deadlineAt: nowTs + chosen,
+          petId: pickPetId(tier),
+          phase: 'waiting',
+          revealedAt: null,
+          hintedPhases: [],
+        }
+        readyNotified.current = false
+        monoBase.current = { wall: nowTs, mono: performance.now() }
+        setNow(nowTs)
+        const saved = persist({
+          ...recordRef.current,
+          settings: { ...recordRef.current.settings, lastDurationMs: chosen },
+          session: nextSession,
+        })
+        if (recordRef.current.settings.sound) sfx.start()
+        syncBackScreen()
+        await saved
       }
-      readyNotified.current = false
-      monoBase.current = { wall: nowTs, mono: performance.now() }
-      setNow(nowTs)
-      await persist({
-        ...recordRef.current,
-        settings: { ...recordRef.current.settings, lastDurationMs: mode === 'demo' ? recordRef.current.settings.lastDurationMs : chosen },
-        session: nextSession,
+      const task = run().finally(() => {
+        pendingStart.current = null
+        setStarting(false)
       })
-      await wakeBackScreen().then((r) => {
-        if (r.ok) setBackScreenStatus('ok')
-        else setBackScreenStatus('failed')
-      })
-      await submitPhaseFrame('waiting', nextSession.petId)
-      if (recordRef.current.settings.sound) sfx.start()
+      pendingStart.current = task
+      return task
     },
-    [persist, submitPhaseFrame],
+    [persist, syncBackScreen, cancelRevealTransition, cancelDueVibrationTail],
   )
 
   /* ---------- 动作：揭晓（收藏与揭晓状态同一份记录一起更新） ---------- */
   const reveal = useCallback(async () => {
+    const nowTs = refreshNow()
     const current = recordRef.current.session
-    if (!current || current.phase === 'revealed') return
-    const nowTs = Date.now()
+    if (!loadedRef.current || !current || computePhase(current, nowTs) !== 'ready') return
+    cancelDueVibrationTail()
     const petId = current.petId
     const prev = recordRef.current.collection[petId] ?? { count: 0, lastRevealedAt: null }
     const nextSession: EggSession = { ...current, phase: 'revealed', revealedAt: nowTs }
     const nextRecord: EggRecord = {
       ...recordRef.current,
+      settings: { ...recordRef.current.settings, backScreenPetId: petId },
       session: nextSession,
       collection: {
         ...recordRef.current.collection,
         [petId]: { count: prev.count + 1, lastRevealedAt: nowTs },
       },
     }
-    setRecord(nextRecord)
-    recordRef.current = nextRecord
-    setNow(nowTs)
-    try {
-      await saveRecord(nextRecord)
-      setStorageWarning(null)
-    } catch (error) {
-      nativeLog.w('egg', 'reveal save failed', String(error))
-      setStorageWarning('这次收藏还没保存，请重试')
+    cancelRevealTransition()
+    if (!reducedMotionRef.current) {
+      revealingSession.current = current.sessionId
+      setRevealing(true)
+      revealTimer.current = window.setTimeout(() => {
+        revealTimer.current = null
+        if (revealingSession.current !== current.sessionId) return
+        revealingSession.current = null
+        setRevealing(false)
+        syncBackScreen()
+      }, REVEAL_TRANSITION_MS)
     }
+    // 状态、计数和背屏选择同步更新引用，连续点击不可能重复入藏。
+    const saved = persist(nextRecord, '这次收藏还没保存，请重试')
+    if (recordRef.current.settings.sound) sfx.crack()
+    syncBackScreen()
+    await saved
+    if (recordRef.current.session?.sessionId !== current.sessionId) return
     try {
       await invokeNative('vibrateShort', { type: 'light' })
     } catch {
       // 预览环境无振动
     }
-    if (recordRef.current.settings.sound) sfx.crack()
-    submitSeq.current += 1
-    const seq = submitSeq.current
-    const result = await pushFrame(petFrame(petId))
-    if (seq === submitSeq.current) setBackScreenStatus(result.ok ? 'ok' : 'failed')
-  }, [])
+  }, [persist, refreshNow, cancelRevealTransition, syncBackScreen, cancelDueVibrationTail])
 
   /* ---------- 动作：重试保存（同一 sessionId，不重复加次数） ---------- */
   const retrySave = useCallback(async () => {
-    try {
-      await saveRecord(recordRef.current)
-      setStorageWarning(null)
-      toast({ title: '收藏已保存', tone: 'success' })
-    } catch {
-      setStorageWarning('这次收藏还没保存，请重试')
+    if (!loadedRef.current) return
+    const snapshot = recordRef.current
+    const saved = await saveSnapshot(snapshot, snapshot.session?.phase === 'revealed'
+      ? '这次收藏还没保存，请重试' : '原有记录还没保存，请重试')
+    if (saved && recordRef.current === snapshot) {
+      toast({ title: snapshot.session?.phase === 'revealed' ? '收藏已保存' : '记录已保存', tone: 'success' })
     }
-  }, [toast])
+  }, [saveSnapshot, toast])
 
-  /* ---------- 动作：结束本局（保留收藏，释放背屏与亮屏） ---------- */
+  /* ---------- 动作：结束本局（恢复已选伙伴，否则释放背屏；释放亮屏） ---------- */
   const abortSession = useCallback(async () => {
+    if (!loadedRef.current) return
     readyNotified.current = false
     monoBase.current = null
     flipStop.current = true
-    await clearFrame()
-    await sleepBackScreen()
+    cancelDueVibrationTail()
+    cancelRevealTransition()
+    const saved = persist({ ...recordRef.current, session: null })
+    syncBackScreen(true)
     try {
       await invokeNative('setKeepScreenOn', { keepScreenOn: false })
     } catch {
       // 预览环境忽略
     }
-    await persist({ ...recordRef.current, session: null })
-  }, [persist])
+    await saved
+  }, [persist, cancelRevealTransition, syncBackScreen, cancelDueVibrationTail])
 
   /* ---------- 翻面自动揭晓（实验）：ready 后监听加速度 z 轴翻正 ---------- */
   useEffect(() => {
-    if (phase !== 'ready' || !session) return
-    if (!recordRef.current.settings.flipReveal) return
-    flipStop.current = false
+    if (!loaded || phase !== 'ready' || !session) return
+    if (!record.settings.flipReveal) return
+    flipStop.current = !foregroundRef.current || document.visibilityState === 'hidden'
+    const canReadSensor = () => loadedRef.current && foregroundRef.current && document.visibilityState !== 'hidden'
     const timer = window.setInterval(async () => {
-      if (flipStop.current) return
+      if (flipStop.current || !canReadSensor()) return
+      const generation = flipGeneration.current
       try {
         const { values } = await invokeNative('getSensor', { type: 'accelerometer' })
+        if (generation !== flipGeneration.current || flipStop.current || !canReadSensor() ||
+          recordRef.current.session?.sessionId !== session.sessionId) return
         const z = values?.[2] ?? 0
         if (z > FACE_UP_Z) {
           flipStop.current = true
@@ -471,39 +694,92 @@ export function EggProvider({ children }: { children: ReactNode }) {
         }
       } catch {
         // 传感器不可用：静默停止，主按钮始终可用
-        flipStop.current = true
+        if (generation === flipGeneration.current) flipStop.current = true
       }
     }, FLIP_POLL_MS)
     return () => {
+      flipStop.current = true
+      flipGeneration.current += 1
       window.clearInterval(timer)
     }
-  }, [phase, session, reveal])
+  }, [loaded, phase, session, record.settings.flipReveal, reveal])
 
   /* ---------- 设置 ---------- */
   const updateSettings = useCallback(
     (patch: Partial<EggSettings>) => {
+      if (!loadedRef.current) return
+      // 背屏选择只走带所有权与保存状态校验的专用动作。
+      if ('backScreenPetId' in patch) return
+      if (patch.lastDurationMs !== undefined && !isValidDuration(patch.lastDurationMs)) return
       const next: EggRecord = {
         ...recordRef.current,
         settings: { ...recordRef.current.settings, ...patch },
       }
-      if (patch.sound !== undefined) setSoundEnabled(patch.sound)
+      if (patch.sound !== undefined) {
+        const newlyEnabled = patch.sound && !recordRef.current.settings.sound
+        setSoundEnabled(patch.sound)
+        if (newlyEnabled) {
+          unlockAudio()
+          sfx.enable()
+        }
+      }
       void persist(next)
     },
     [persist],
   )
 
+  const selectBackScreenPet = useCallback(async (petId: string | null) => {
+    if (!loadedRef.current || pendingWrites.current > 0 || storageWarningRef.current || revealingSession.current) return
+    const current = recordRef.current
+    if (current.session && computePhase(current.session, refreshNow()) !== 'revealed') return
+    if (petId !== null && (!Object.prototype.hasOwnProperty.call(PET_BY_ID, petId) ||
+      (current.collection[petId]?.count ?? 0) <= 0)) return
+    if ((current.settings.backScreenPetId ?? null) === petId) return
+    const saved = persist({ ...current, settings: { ...current.settings, backScreenPetId: petId } }, '背屏选择还没保存，请重试')
+    syncBackScreen(true)
+    await saved
+  }, [persist, refreshNow, syncBackScreen])
+
+  const canReact = useCallback((kind: ReactionKind) =>
+    (kind === 'tap' || kind === 'hold') && loadedRef.current && foregroundRef.current &&
+    document.visibilityState !== 'hidden' && !reducedMotionRef.current && !revealingSession.current &&
+    pendingWrites.current === 0 && !storageWarningRef.current, [])
+
+  const reactToBackScreenPet = useCallback((petId: string, kind: ReactionKind): boolean => {
+    if (!canReact(kind)) return false
+    syncBackScreen()
+    if (!canReact(kind)) return false
+    const current = recordRef.current
+    if (current.session && computePhase(current.session, Date.now()) !== 'revealed') return false
+    if (current.settings.backScreenPetId !== petId || !Object.prototype.hasOwnProperty.call(PET_BY_ID, petId) ||
+      (current.collection[petId]?.count ?? 0) <= 0) return false
+    return schedulerRef.current!.playReaction(`pet:${petId}:true`, petReactionFrames(petId, kind))
+  }, [canReact, syncBackScreen])
+
+  const reactToBackScreenEgg = useCallback((sessionId: string, kind: ReactionKind): boolean => {
+    if (!canReact(kind)) return false
+    syncBackScreen()
+    if (!canReact(kind)) return false
+    const current = recordRef.current.session
+    if (!current || current.sessionId !== sessionId) return false
+    const currentPhase = computePhase(current, Date.now())
+    if (currentPhase === 'revealed') return false
+    return schedulerRef.current!.playReaction(`${sessionId}:${currentPhase}:true`, eggReactionFrames(currentPhase, kind))
+  }, [canReact, syncBackScreen])
+
   const retryBackScreen = useCallback(() => {
+    if (!loadedRef.current) return
+    const scheduler = schedulerRef.current!
+    if (scheduler.hasInFlightRequest) {
+      if (scheduler.waitingForTimedOutRequest) scheduler.retry()
+      return
+    }
     resetBackScreenMode()
-    void resolveBackScreenMode().then((mode) => {
-      setBackScreenMode(mode)
-      setBackScreenStatus('unknown')
-      const current = recordRef.current.session
-      if (current) {
-        const next = computePhase(current, Date.now())
-        if (next !== 'revealed') void submitPhaseFrame(next, current.petId)
-      }
-    })
-  }, [submitPhaseFrame])
+    syncBackScreen()
+    // 连接等待由实际命令触发，统一占用串行通道并受同一个超时诊断保护。
+    // sync 可能刚好推进到新阶段并提交目标，此时不再重复提交。
+    if (!scheduler.hasInFlightRequest) scheduler.retry()
+  }, [syncBackScreen])
 
   const collectionCount = useMemo(
     () => Object.values(record.collection).filter((c) => c.count > 0).length,
@@ -513,6 +789,11 @@ export function EggProvider({ children }: { children: ReactNode }) {
   const value = useMemo<EggContextValue>(
     () => ({
       loaded,
+      loadError,
+      retryLoad,
+      starting,
+      saving,
+      revealing,
       record,
       settings: record.settings,
       session,
@@ -522,18 +803,28 @@ export function EggProvider({ children }: { children: ReactNode }) {
       pet,
       backScreenMode,
       backScreenStatus,
+      backScreenFrame,
       storageWarning,
       reducedMotion,
+      isForeground,
       collectionCount,
       startSession,
       reveal,
       abortSession,
       retrySave,
       updateSettings,
+      selectBackScreenPet,
+      reactToBackScreenPet,
+      reactToBackScreenEgg,
       retryBackScreen,
     }),
     [
       loaded,
+      loadError,
+      retryLoad,
+      starting,
+      saving,
+      revealing,
       record,
       record.settings,
       session,
@@ -542,14 +833,19 @@ export function EggProvider({ children }: { children: ReactNode }) {
       pet,
       backScreenMode,
       backScreenStatus,
+      backScreenFrame,
       storageWarning,
       reducedMotion,
+      isForeground,
       collectionCount,
       startSession,
       reveal,
       abortSession,
       retrySave,
       updateSettings,
+      selectBackScreenPet,
+      reactToBackScreenPet,
+      reactToBackScreenEgg,
       retryBackScreen,
     ],
   )

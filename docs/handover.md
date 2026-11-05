@@ -1,77 +1,154 @@
 # 交接文档 ·「这颗蛋快孵出来了」
 
-> 面向接手的开发者 / AI：本文是二次开发的唯一入口。先读本文，再读 `README.md` 与 `docs/acceptance.md`。
-> 项目性质：STEPX Neo 背屏孵蛋小玩具（React + TypeScript + Vite，本地存储，无后端、无登录、无支付）。
+> 项目性质：STEPX Neo 背屏孵蛋小玩具，React + TypeScript + Vite，本地存储，无业务后端、登录或支付。
+> 最新交付（2026-11-05）：温暖像素界面、12只角色的轻点／长按与双屏回应、音效和到期振动，补齐读档保护与后台翻面检查。最终结果以 [交付验收](final-acceptance.md) 为准；绘本与早期测试报告仅作历史参考。
+> 后续补充：本地像素音效、12 只宠物的轻点／长按声与到期双短振，见 [音效与振动验收](feedback-acceptance.md)。默认静音及现有 v2 设置保留，关闭声音仍有到期振动。
 
-## 1. 产品一句话
+## 1. 需求与落点
 
-点「孵一颗」→ 把手机正面朝下 → 背面 17×23 点阵屏显示一颗蛋，随时间出现裂纹 → 到点轻振一次 → 翻回主屏揭晓 6 个角色之一。三页面：开始页 / 孵化及揭晓页 / 收藏页。正式模式可选 1 / 3 / 5 / 10 分钟（默认 3 分钟），演示模式 20 秒。
+| 已确认需求 | 实现与验收落点 |
+| --- | --- |
+| “最后进行一次测试优化”“做好交接” | 读取失败／损坏／未知版本不覆盖旧存档，可重新读取；pagehide和原生后台禁止翻面揭晓；新私有仓库保留源码、测试、来源许可和接手文档 |
+| “补充音效，和倒计时结束震动反馈” | 12 角色专属短旋律、蛋回应及流程提示音；手势解锁、后台／静音停止且不积压；到期 medium 短振两次、间隔250ms，每局去重，隐藏／结束／揭晓取消尾振 |
+| “整体复古像素界面”“只靠触摸发现”“活泼但有停顿” | 主图64／缩略图32／背屏17×23分别绘制；轻点1000ms、按住600ms后回应1800ms；列表静止、详情互动；8／10／12秒轮换 |
+| “这个蛋不够标准”“整体项目视觉好好设计”；后续明确整体复古像素风 | 上窄下宽、圆润完整的标准蛋形；前屏蛋、宠物、场景及界面统一像素风与温暖配色 |
+| “背屏怎么丰富变化”“正面不能单一显示点阵” | 前屏精细像素场景与触摸回应；背屏保留 17×23 输出，阶段／动作独立绘制，单一串行调度并丢弃旧帧 |
+| 选择“互动收藏”“从收藏选择宠物放到背屏” | 已拥有角色详情、轻点反馈、选择／停止背屏；新揭晓自动选中，未揭晓局优先、结束恢复原选择 |
+| 保持相遇的惊喜与现有玩法范围 | 1200ms 破壳内隐藏角色名字、短句和无障碍名称；减少动态跳过，已揭晓重载不重播；不新增养成系统 |
+| 计时器支持自定义分秒，总时长 1 秒至 180 分钟 | 开始页分、秒两个输入；共享时长校验、精确格式化和上次有效时长恢复 |
+| 少于 3 分钟低级；3–7 分钟普通；7–10 分钟高级；10 分钟及以上华丽 | 以精确秒数判定；3:00 普通、7:00 高级、10:00 华丽；开局保存等级 |
+| 四档独立宠物，每档 3 只，共 12 只 | 角色目录、档内等概率抽取、17×23 点阵、揭晓等级和四档收藏 |
+| 去掉“体验一局” | 删除新建演示入口和演示标识；旧演示局可完成，但再次孵化走正常时长 |
+| 保留已有进度与收藏 | 原存储键内升级记录版本；保留旧角色 ID、计数、日期和正在进行的一局，不重新抽取或推断旧局等级 |
+| 保持原背屏与桥接架构 | 背屏仍走 ic_atomic_990001 / window.mcp，普通原生能力仍走现有 Capsule 桥接 |
 
-完整产品需求见仓库内 `docs/这颗蛋快孵出来了-PRD.docx`（评审稿 V0.1）。
+原始需求原件为 `docs/这颗蛋快孵出来了-PRD.docx`（V0.1 评审稿），本轮不修改。原件中的整分钟快捷选项、6 角色与演示入口已被本轮确认规则替代；历史验收不代表新规则已通过。
 
-## 2. 运行与验证命令
+## 2. 产品流程与角色目录
 
-```bash
-npm install        # 或 npm run deps（沙箱回收后 node_modules 会丢，先自愈）
-npm run dev        # 本地预览：http://127.0.0.1:5173/preview/p_0b48bb06f8c0d4dd/ （必须带尾斜杠）
-npm run typecheck  # tsc --noEmit
-npm run build      # 产出 dist/client/（壳侧 bundle，可打 APK）
-node scripts/acceptance-web.mjs   # 网页验收 33 项（需 dev server 在线）
-node <app-creator-skill>/scripts/validate.mjs . --build   # 工程门禁 39 项
-```
+输入分、秒 → 查看本次可孵出的等级 → 点“孵一颗” → 把手机正面朝下 → 背屏蛋逐步裂开 → 到期短振 → 主屏破壳与宠物相遇 → 自动成为背屏伙伴 → 互动收藏或再孵一颗。
 
-验收记录与截图：`docs/acceptance.md`、`.acceptance/`（截图本地留存，不提交）。
+三个页面仍为开始页、孵化及揭晓页、收藏页。开始页使用分秒输入、即时等级和唯一的新建孵化主按钮，不保留时长快捷选项或“体验一局”。已有局时保留继续孵化入口及重开确认；编辑输入不会修改该局。
+
+开始页以标准蛋与设定时长为核心，附当前背屏伙伴状态；孵化页以前屏插画、阶段提示和计时为核心，点阵预览只承担背屏说明；收藏页以“遇见的小伙伴”分档展示，已拥有卡片可进入互动详情和背屏选择。未拥有卡片不可选择。互动反馈只影响短时表情与动效，不影响计时、等级、结果或收藏次数。
+
+| 等级（枚举） | 精确时长范围 | 角色名称（petId） |
+| --- | --- | --- |
+| 低级（`low`） | 00:01 ≤ t < 03:00 | 小小蛋（`tiny_egg`）、发芽土豆（`sprout_potato`）、一脸问号（`question_face`） |
+| 普通（`normal`） | 03:00 ≤ t < 07:00 | 迟到小鸭（`late_duck`）、纸箱幽灵（`box_ghost`）、打盹云（`nap_cloud`） |
+| 高级（`high`） | 07:00 ≤ t < 10:00 | 月牙小猫（`crescent_cat`）、星角小鹿（`star_fawn`）、披风企鹅（`cape_penguin`） |
+| 华丽（`ornate`） | 10:00 ≤ t ≤ 180:00 | 日冕凤凰（`solar_phoenix`）、星环鲸（`ring_whale`）、月冠龙（`moon_crown_dragon`） |
+
+- 分钟范围 0–180，秒范围 0–59，总时长 1 秒至 180 分钟；180 分钟只能配 0 秒。无效输入显示原因并禁止开始，不静默截断。
+- 首次默认 3 分 0 秒；存储加载后恢复最近有效时长。格式化保留秒数，例如 3 分 15 秒不能显示为 3 分钟。
+- 仅从所选等级的 3 只宠物中等概率抽取。等级与宠物在开局时锁定，推迟揭晓不会升级；提前返回仍是同一局。
+- 收藏以低级、普通、高级、华丽顺序分组，每组 3 只，总进度为 x / 12；保留计数、最近日期、未遇见剪影与短句反馈。
 
 ## 3. 代码地图
 
 | 文件 | 职责 |
 | --- | --- |
-| `src/app/App.tsx` | 路由：`/` 开始页、`/hatch` 孵化及揭晓、`/collection` 收藏 |
-| `src/app/pages/StartPage.tsx` | 开始页：时长 chips、主按钮、音效开关、隐私提示 |
-| `src/app/pages/HatchPage.tsx` | 孵化页：倒计时、阶段预览、翻面开关、结束确认、揭晓（1 秒破壳两帧） |
-| `src/app/pages/CollectionPage.tsx` | 收藏页：6 格、次数/最近日期、剪影、小喇叭 toast 反馈 |
-| `src/shared/egg/EggProvider.tsx` | **核心**：状态机、计时（deadline 驱动）、阶段效果、背屏提交、生命周期恢复、动作（start/reveal/abort/retrySave） |
-| `src/shared/egg/types.ts` | 类型 + 时长常量 + `formatDuration` + 阶段边界（50% / 85%） |
-| `src/shared/egg/patterns.ts` | 蛋的阶段点阵帧（waiting/wobble/cracking/almost/ready/readyAlt） |
-| `src/shared/egg/pets.ts` | 6 个角色字符串点阵 + 短句 + 等概率抽取 |
-| `src/shared/egg/matrix.ts` | 帧运算：patternToFrame / carveLine / shiftFrame / toSilhouette |
-| `src/shared/egg/backScreen.ts` | 背屏接入层：`window.mcp.callTool`，dev 走模拟、生产无壳不假装成功 |
-| `src/shared/egg/audio.ts` | Web Audio 合成音效（start/stage/due/crack/meet），默认关 |
-| `src/shared/egg/storage.ts` | 本地记录：带版本号、串行写入、损坏/拒绝时抛错由上层处理 |
-| `src/app/components/MatrixView.tsx` | 17×23 CSS grid 点阵预览（点亮 / 剪影两态） |
+| `src/app/App.tsx` | 路由：`/` 开始、`/hatch` 孵化与揭晓、`/collection` 收藏 |
+| `src/app/pages/StartPage.tsx` | 分秒输入、输入错误、即时等级、开始／重开确认、音效和隐私提示 |
+| `src/app/pages/HatchPage.tsx` | 倒计时、阶段预览、新局等级、揭晓、存储重试与再次孵化 |
+| `src/app/pages/CollectionPage.tsx` | 四档互动收藏、x / 12 总进度、计数与最近日期、详情及选择／停止背屏 |
+| `src/shared/egg/EggProvider.tsx` | 状态机、计时、`startSession(durationMs)`、开局锁定结果、生命周期恢复、揭晓和保存 |
+| `src/shared/egg/types.ts` | 等级与会话类型、时长边界、精确格式化、阶段边界 |
+| `src/shared/egg/pets.ts` | 12 个角色、等级归属、17×23 图案、短句与档内抽取 |
+| `src/shared/egg/storage.ts` | 本地记录版本升级、旧局兼容、区分不存在与读取失败、串行写入 |
+| `src/shared/egg/patterns.ts` / `matrix.ts` | 孵化阶段帧、图案转换和平移等点阵运算 |
+| `src/shared/egg/backScreen.ts` | 唯一背屏出口，真实设备 / DEV 模拟 / 不可用分层 |
+| `src/shared/egg/backScreenScheduler.ts` | 四命令串行、过期帧废弃、短动画节奏、隐藏暂停与恢复 |
+| `src/shared/egg/audio.ts` | 本地 Web Audio 像素音色与12角色旋律，默认关闭；手势解锁、全局单段播放、前后台与中断清理 |
+| `src/app/components/EggScene.tsx` / `PetArtwork.tsx` / `usePixelInteraction.ts` | 像素展示包装；轻点／长按互斥、滚动与后台取消、键盘替代和减少动态 |
+| `src/shared/egg/pixelVisuals.ts` / `src/app/components/PixelSprites.tsx` | 64格主图与逐帧姿态、独立32格缩略图、同蛋形切壳、整数网格SVG渲染 |
+| `src/shared/egg/petMotionFrames.ts` / `motion.ts` | 独立背屏动作与纯内存的tap／hold动作类型，不增加持久化字段 |
+| `src/app/components/EggUI.tsx` / `MatrixView.tsx` | 等级、保存提示、背屏状态及 17×23 小型预览 |
 
-## 4. 核心机制（改代码前必读）
+## 4. 数据、计时与兼容规则
 
-- **计时**：以 session 的 `deadlineAt` 计算进度，页面 250ms tick 只负责刷新；恢复时先读记录再算阶段。设备时间跳变 >3s 时按 `performance.now()` 已运行时长重算 deadline 并提示用户。
-- **背屏**：连接器 `ic_atomic_990001`，先 `await window.mcp.connect()` 再 `callTool`。核心能力 `set_back_screen_frame`，入参 `{frame: number[391]}`（17 列×23 行**行优先**，下标 `y*17+x`，0 灭 / 255 亮，**不支持 text 参数**）；另有 `clear_back_screen_frame`、`wake_up_back_screen`、`sleep_back_screen`（均无参）。提交带自增 seq，过期响应丢弃；回前台只提交当前阶段。
-- **阶段**：waiting 0–50%（8 秒两帧轻晃，减少动态时跳过）/ cracking 50–85%（一条锯齿裂纹）/ almost 85–100%（裂纹扩展+上部偏移）/ ready（裂开蛋+问号）/ revealed（角色剪影）。
-- **存储**：一份带版本号记录 = settings（sound / flipReveal / lastDurationMs / privacyAgreed）+ session + 6 角色计数；session 字段 sessionId、mode、durationMs、startedAt、deadlineAt、petId、phase、revealedAt、hintedPhases。揭晓与计数同一份记录一起更新，写成功才算收藏完成；失败显示「这次收藏还没保存」可重试（同 sessionId 不重复计数）。
-- **壳接口**：`getSensor` / `vibrateShort` / `setKeepScreenOn` / `setStorage` / `getStorage` / `privacy.getStatus` / 事件 `appShow` / `appHide`，均为普通权限（manifest `permissions: []`）。到期未揭晓最多保持亮屏 30 秒后释放。
-- **预览链路**：平台预览走 `https://studio.stepx.com/preview/p_0b48bb06f8c0d4dd/`，代理到本地 dev server（端口见 `PREVIEW_PORT`，当前 5173）。dev 时 HTML 会注入 `@id/virtual:stepfun-preview-runtime`（仅 dev，生产产物不含）；**不要 kill / 重启预览服务**；`.env.local` 被平台更新时 Vite 会自动重启，重启窗口期预览会瞬报资源加载失败，刷新即恢复。
+### 开局与揭晓
 
-## 5. 当前状态
+`startSession(durationMs)` 只创建正常孵化，校验时长后计算等级、档内抽取宠物，再保存本局。新版 session 包含 `tier`，不再以 `mode` 区分正常与演示。当前局的时长、等级与角色一经建立不因页面输入或迟到揭晓变化。
 
-- 已完成：三页面、6 角色、阶段点阵、自定义时长、收藏、背屏接入层、音效、存储与异常处理。
-- 验证：typecheck / build / 门禁 39/39 / 网页验收 33/33 全过（见 `docs/acceptance.md`）。
-- 环境限制：本开发环境无 STEPX Neo 真机，以下为**待真机验证项**（接入层已隔离，APK 装真机后按 `docs/acceptance.md` 末节步骤补测）：
-  1. 背屏实际显示（方向、亮度、释放、系统抢占恢复）；
-  2. 到期短振可感知性、切后台是否执行；
-  3. `getSensor` 轴向与翻面阈值（当前 z < -5 朝下 / z > +5 朝上）；
-  4. 锁屏 / 切应用 / 接电话恢复；
-  5. 系统读屏（TalkBack / 旁白）；
-  6. 现场可读性试玩（30cm / 60cm，4 人至少 3 人区分三种状态）。
+计时以保存的截止时间为基础，页面定时器负责刷新；倒计时与阶段必须保持一致，不能在系统时钟变化后分别采用不一致的基准。阶段沿用 waiting 0–50%、cracking 50–85%、almost 85–100%、ready 到期、revealed 已揭晓。自主动作按开始间隔8／10／12秒轮换，两种姿态交替；每段背屏至多三帧、最终回静帧，所有推帧距上一帧真实回执至少一秒。减少动态时使用静帧，不补播错过的动画。
 
-## 6. 下一步建议（按优先级）
+`reactToBackScreenPet`／`reactToBackScreenEgg` 校验当前目标、前台、保存和动态偏好，再调用 `playReaction(expectedSceneKey, frames)`；布尔返回只表示接受，不是硬件成功。手动动作不改变长期scene或重发wake。阶段／目标变化优先，手动回应可取消idle剩余帧，手动播放期间不接受连点队列。同一目标旧idle在被抢占后失败仍停播；真正换目标的旧非超时失败不覆盖新状态。10秒诊断超时始终保留真实请求占用。
 
-1. **真机补测**后，把 `src/shared/egg/types.ts` 的 `flipReveal` 默认值改 `true`，并去掉 `HatchPage` 开关上「实验功能，真机验证后生效」标注（PRD：前台翻面自动揭晓验证通过后启用）。
-2. 若背屏点阵方向与设计相反，在 `src/shared/egg/matrix.ts` 输出前做一次转置（PRD 03 章：落地时校正设备方向）。
-3. 后续增强（PRD「可进入下一版」）：Amoo 语音创建一局、5/10 分钟以上时长、点阵主题、用户自画角色。
-4. 交付物：`dist/client/` 随 `capsule/` 构成壳侧 bundle 打包 APK；应用名/桌面图标在平台项目设置里改，不要改源码兜底。
+揭晓与收藏计数仍写入同一份记录。保存失败应提示重试，不能同时声称收藏已保存；同一局重复揭晓或重试不重复增加次数。新版局“再孵一颗”沿用该局时长，重新生成一次等级内的随机结果。
 
-## 7. 注意事项
+破壳 `revealing` 是内存中的 1200ms 过场，不增加持久化阶段。过场期间正面插画、文本和无障碍名称均不暴露结果；减少动态直接相遇。揭晓记录已保存后重载，直接恢复相遇页，不重播过场或重复计数。
 
-- 颜色只用语义 token（`src/shared/styles/tokens.css`，当前为深色暖调 + 琥珀主色）；组件里禁止色值字面量。
-- 图标用 `lucide-react` 具名导入；禁止运行时动态注入脚本；禁止外部 CDN 资源。
-- 高度用 `h-dvh` 系，不用 `100vh`；滚动条默认隐藏（`.ui-app`）。
-- 数据只走 `src/shared/egg/storage.ts`（壳 setStorage / 浏览器 localStorage 适配）；不要新建 supabase 客户端（本应用无后端）。
-- 提交前跑：`npm run typecheck` + `npm run build` + `validate.mjs . --build`。
+### 背屏伙伴选择
+
+- `settings.backScreenPetId` 保存当前已拥有角色或 `null`，沿用 v2 与原存储键。旧 v2 缺失字段、非法角色或未拥有角色归 `null`，下次正常保存带入；不为补字段单独回写。
+- 新揭晓将收藏计数、当前局结果和自动选择写入同一份记录。之后从收藏手动更换，返回旧结果页或重载不能再次覆盖该选择。
+- 未揭晓局（包含 ready）优先展示蛋，且禁用更换和停止入口；开始时保留此前选择，主动结束后恢复此前伙伴。没有选择时保持 clear → sleep。
+- 保存中或保存失败待重试时不接受新的选择；保存告警与背屏连接失败分别呈现，连接失败不撤销已保存的选择或收藏。
+- 背屏命令统一串行，场景切换丢弃尚未执行的旧帧；隐藏时暂停动画，返回时恢复当前状态。保留孵化期 `keep(true)`、ready 后 30 秒释放和既有桥接生命周期；宠物展示不额外保持前屏常亮，不承诺锁屏后台动画。
+
+### 记录升级
+
+- 记录内容版本升级为 v2，**继续使用 `egg.record.v1` 存储键**，不引入新存储机制。
+- 旧 6 个 `petId` 保持不变，收藏次数与最近日期原样保留。新目录分组只表示角色当前归属，不声称旧收藏曾按新时长条件获得。
+- 旧 session 去掉 `mode`，设置 `tier: null`，保留 `sessionId`、`petId`、时长、开始时间、截止时间、阶段、揭晓时间和已提示阶段。不按旧局时长重新抽取宠物或反推等级。
+- `tier: null` 的旧局可以继续和揭晓，相关页面隐藏本局等级；旧演示局不例外。旧局完成后“再孵一颗”使用最近有效的正常设置时长，缺失或无效时使用 3 分钟。
+- 迁移和重复加载不能新增收藏次数。等级为空只用于兼容旧局，新建局必须有由时长确定的等级。
+
+## 5. 原生能力与运行方式
+
+2026-11-05 对照用户提供的背屏 v1.0.0 文件补做协议核验，详情见 [背屏接口核验](back-screen-verification.md)。适配器新增严格帧／回执校验、明确连接失败识别和脱敏诊断；连接不阻塞前屏，10 秒诊断超时保留真实请求占用，期间不另起重连。原接口、显示模式、亮屏和翻面机制保持。
+
+背屏架构不变：连接器 `ic_atomic_990001`，先 `await window.mcp.connect()`，再调用 `set_back_screen_frame({ frame })`。帧为 391 个亮度值，17 列×23 行、行优先，下标 `y * 17 + x`，0 灭 / 255 亮；不支持 text 参数。清屏、亮灭分别走 `clear_back_screen_frame`、`wake_up_back_screen`、`sleep_back_screen`。
+
+普通壳能力继续使用现有桥接：`getSensor`、`vibrateShort`、`setKeepScreenOn`、`setStorage` / `getStorage`、`privacy.getStatus`、`appShow` / `appHide`。不新增后端、登录、支付、连接器或危险权限。到期未揭晓最多保持亮屏 30 秒后释放；翻面自动揭晓仍默认关闭，必须经过真机轴向与行为验证后另行启用。
+
+```bash
+npm ci                                       # 按锁定版本安装依赖
+node node_modules/playwright/cli.js install chromium # 首次运行网页验收前执行
+npm run dev -- --host 127.0.0.1 --port 5179 --strictPort # 保持终端与预览服务在线
+npm run typecheck                            # TypeScript 检查
+node --test src/shared/egg/backScreenScheduler.test.mjs # 背屏调度器独立测试
+npm run build                                # 壳侧主产物 dist/client/
+npm run test:e2e -- http://127.0.0.1:5179/     # 另一终端；本轮实测服务地址
+```
+
+网页验收入口仍为 `scripts/acceptance-web.mjs`，使用项目本地 Playwright。脚本默认地址为 `http://127.0.0.1:5173/`，实际执行时须与 DevServer 地址一致；本轮使用5179。最终证据另存 `.acceptance-final/`，具体命令和各套件子目录见最终验收。`.acceptance-storybook/` 是脚本保留的历史默认输出目录，不表示本次结果。平台原预览路径为 `/preview/p_0b48bb06f8c0d4dd/`，平台环境按实际输出地址调用。
+
+完整 native 构建需要可用的 JDK `keytool`。本轮使用本机 PyCharm 附带的 JDK，为原项目缺失的证书生成了调试签名；私钥文件被 Git 忽略，签名配置未修改。平台专项命令 `node <app-creator-skill>/scripts/validate.mjs . --build` 仅在对应技能已安装时可运行，本机缺少该技能，本轮未执行。
+
+生产壳侧产物由平台打包 APK。浏览器 DEV 使用模拟桥，生产无壳时明确不可用，不能把模拟提交当作真实背屏成功。
+
+## 6. 最终验收与接手顺序
+
+本轮完整结果以 [最终验收](final-acceptance.md) 为准，涵盖业务、像素手势、音效、读档恢复、背屏适配器／调度器、资源检查、类型检查与客户端构建。证据保存在本机 `.acceptance-final/`，Git仓库保留可复现脚本与精简结果，不包含运行日志、模拟存档、私钥或本地环境变量。
+
+1. 克隆私有仓库 `aladyaraya/pixel-pet-nest`，执行 `npm ci`；需要浏览器验收时安装Playwright Chromium。
+2. 按第5节命令启动5179端口预览，保持终端运行。首页“音效”默认关闭，开启会播放试听；测试存档在浏览器与真机各自本地保存。
+3. 在另一终端运行 `npm run typecheck`、`npm run test:back-screen` 和四套浏览器验收；不要在验收过程中修改源文件触发Vite整页刷新。
+4. 配置JDK后执行 `npm run build`，壳侧主产物为 `dist/client/`。APK由平台打包；不要把Git历史包或静态Web目录当成APK。
+5. 再完成下面列出的真机验收，记录设备、系统版本与实测现象后决定设备发布。此次仅交付GitHub源码，不部署应用或发布APK。
+
+### 读档失败与后台边界
+
+仅 `getStorage` 成功返回 `data: null` 才表示首次使用。读取失败、损坏或未知版本保持原记录并显示“重新读取”；未成功加载时禁止写入。迁移已成功读取但保存失败仍保留恢复出的内存记录，沿用“重试保存”，不增加收藏次数。不要为了跳过错误手动清空用户存档；先保留原记录并诊断接口或版本。
+
+前台状态共同受原生appShow/appHide、页面pagehide/pageshow和document.visibilityState控制。隐藏时停止声音、自主动画及待发回应，取消到期第二次短振；后台翻面采样及迟到传感器回执不能揭晓。恢复只显示当前状态，不追赶旧动画／声音。
+
+到期提醒按当前会话与已保存hintedPhases去重。若保存失败且重试前彻底重启，旧快照无法知道已经提醒，可能再次提示；详见 [反馈验收](feedback-acceptance.md)。系统挂起页面时无法保证到时唤醒。
+
+### 真机仍需完成
+
+- 背屏391点实际显示、方向、阶段切换、手动回应、停止展示与失败恢复。
+- STEPX Neo传感器轴向、翻面揭晓、原生亮屏释放以及系统抢占恢复。
+- 到期双短振的振感、扬声器听感、系统静音策略与减少动态设置。
+- 锁屏、切应用、接电话、系统杀进程后的恢复、保持时间及功耗。
+- 系统读屏、真实输入法与安全区。浏览器模拟视口不能替代这些检查。
+
+平台专项 `app-creator-skill/validate.mjs` 本机缺失，未执行。签名私钥被Git忽略；现有本地证书是调试用途，不作为正式发布签名共享。
+
+### 历史资料
+
+原始PRD、早期绘本的49项网页／11项调度器结果、早期分秒计时29项结果均保留为历史，不计为本轮通过。当前风格为温暖复古像素，首页四档时长说明继续隐藏；不增加养成数值、第四个页面或新的存储字段。
+
+根目录 `egg-handover.bundle` 是旧提交 `aba2551` 的Git历史包，不是本次源码快照或APK。接手应克隆新仓库main；本机origin指向新仓库，upstream保留旧 `aladyaraya/-JY` 来源。本次不会推送旧仓库。

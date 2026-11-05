@@ -6,13 +6,22 @@
 /** 背屏 / 主屏共用的孵化阶段 */
 export type EggPhase = 'waiting' | 'cracking' | 'almost' | 'ready' | 'revealed'
 
-export type EggMode = 'normal' | 'demo'
+export const PET_TIERS = ['low', 'normal', 'high', 'ornate'] as const
+export type PetTier = (typeof PET_TIERS)[number]
+
+export const TIER_LABEL: Record<PetTier, string> = {
+  low: '低级',
+  normal: '普通',
+  high: '高级',
+  ornate: '华丽',
+}
 
 /** 一局孵化。字段与 PRD「本地最小数据」一致：至少包含这些字段 */
 export interface EggSession {
   sessionId: string
-  mode: EggMode
-  /** 本局时长（ms）：正式 180000，演示 20000 */
+  /** 开局时锁定；迁移的历史局没有等级，不重新抽取角色 */
+  tier: PetTier | null
+  /** 本局时长（ms），新局为 1 秒至 180 分钟的整秒数 */
   durationMs: number
   /** 开始时间戳（ms，设备时钟） */
   startedAt: number
@@ -33,10 +42,12 @@ export interface EggSettings {
   sound: boolean
   /** 翻面自动揭晓（需真机验证，默认关） */
   flipReveal: boolean
-  /** 上次选择的正式模式时长（ms），新一局默认沿用 */
+  /** 上次选择的有效时长（ms），新一局默认沿用 */
   lastDurationMs: number
   /** 隐私同意状态缓存 */
   privacyAgreed: boolean | null
+  /** 已拥有、用于背屏陪伴的宠物；旧记录默认不选择 */
+  backScreenPetId?: string | null
 }
 
 export interface PetCount {
@@ -44,7 +55,7 @@ export interface PetCount {
   lastRevealedAt: number | null
 }
 
-/** 带版本号的本地记录：settings + 当前 session + 6 个角色的计数 */
+/** 带版本号的本地记录：settings + 当前 session + 各角色的计数 */
 export interface EggRecord {
   version: number
   settings: EggSettings
@@ -70,16 +81,29 @@ export const PHASE_LABEL: Record<EggPhase, string> = {
 /** 阶段进度边界（PRD 03 章）：0–50 等待 / 50–85 快了 / 85–100 快出来了 / 到期后可揭晓 */
 export const PHASE_BOUNDARIES = { cracking: 0.5, almost: 0.85 }
 
-export const NORMAL_DURATION_MS = 3 * 60 * 1000
-export const DEMO_DURATION_MS = 20 * 1000
+export const MIN_DURATION_MS = 1_000
+export const MAX_DURATION_MS = 180 * 60 * 1000
+export const DEFAULT_DURATION_MS = 3 * 60 * 1000
 
-/** 正式模式可选的计时时长（ms）：1 / 3 / 5 / 10 分钟 */
-export const DURATION_OPTIONS_MS = [60_000, 3 * 60_000, 5 * 60_000, 10 * 60_000]
-export const DEFAULT_DURATION_MS = NORMAL_DURATION_MS
+export function isValidDuration(ms: unknown): ms is number {
+  return typeof ms === 'number' && Number.isInteger(ms) &&
+    ms >= MIN_DURATION_MS && ms <= MAX_DURATION_MS && ms % 1000 === 0
+}
 
-/** 时长的人话标签：不足 1 分钟按秒，否则按分钟 */
+/** 等级仅由开局选择的时长确定，边界采用左闭右开区间。 */
+export function tierForDuration(ms: number): PetTier {
+  if (!isValidDuration(ms)) throw new RangeError('请选择 1 秒到 180 分钟之间的时长')
+  if (ms < 3 * 60_000) return 'low'
+  if (ms < 7 * 60_000) return 'normal'
+  if (ms < 10 * 60_000) return 'high'
+  return 'ornate'
+}
+
+/** 精确到秒；不把边界附近的时长四舍五入到另一等级。 */
 export function formatDuration(ms: number): string {
-  const totalSeconds = Math.round(ms / 1000)
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
   if (totalSeconds < 60) return `${totalSeconds} 秒`
-  return `${Math.round(totalSeconds / 60)} 分钟`
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return seconds ? `${minutes} 分钟 ${seconds} 秒` : `${minutes} 分钟`
 }

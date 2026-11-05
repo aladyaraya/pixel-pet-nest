@@ -19,15 +19,9 @@
 import type { MatrixFrame } from './types'
 import { MATRIX_SIZE } from './types'
 
-interface AtomicToolResult {
-  isError?: boolean
-  content?: unknown
-  structuredContent?: Record<string, unknown> | null
-}
-
 interface AtomicMcp {
   connect(): Promise<unknown>
-  callTool(name: string, args: Record<string, unknown>): Promise<AtomicToolResult>
+  callTool(name: string, args: Record<string, unknown>): Promise<unknown>
 }
 
 declare global {
@@ -42,6 +36,8 @@ export type BackScreenReason =
   | 'connect-failed' // connect 失败或桥不可用
   | 'call-failed' // 提交 / 清除失败
   | 'invalid-frame'
+  | 'invalid-response'
+  | 'timeout' // 已提示超时，但原生请求可能仍在执行，不能视为已取消
 
 export interface BackScreenResult {
   ok: boolean
@@ -54,9 +50,27 @@ export type BackScreenMode = 'device' | 'simulated' | 'unavailable'
 
 let mode: BackScreenMode | null = null
 let connecting: Promise<BackScreenMode> | null = null
+let connectionGeneration = 0
+let unavailableReason: BackScreenReason = 'unavailable'
 
-function hasMcpObject(): boolean {
-  return typeof window !== 'undefined' && typeof window.mcp?.callTool === 'function'
+/** 只记录固定诊断分类与数字错误码，绝不输出回执文本、帧或异常原文。 */
+function diagnose(operation: string, code: string, errorCode?: unknown): void {
+  const numericCode = typeof errorCode === 'number' && Number.isFinite(errorCode) ? ' errorCode=' + errorCode : ''
+  console.warn('[back-screen] connector=ic_atomic_990001 operation=' + operation + ' code=' + code + numericCode)
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function hasAcknowledgment(value: unknown): boolean {
+  // 设备可能返回中文文本，也可能使用 text/MCP 包装；不依赖解析出的结构化字段。
+  if (typeof value === 'string') return value.trim().length > 0
+  if (!isObject(value)) return false
+  if (value.isError === false) return true
+  if (typeof value.text === 'string' && value.text.trim().length > 0) return true
+  if (Array.isArray(value.content)) return true
+  return isObject(value.structuredContent)
 }
 
 /**
@@ -68,22 +82,38 @@ function hasMcpObject(): boolean {
 export async function resolveBackScreenMode(): Promise<BackScreenMode> {
   if (mode) return mode
   if (!connecting) {
+    const generation = connectionGeneration
+    const remember = (next: BackScreenMode, reason: BackScreenReason = 'unavailable') => {
+      // 手动重连后，旧连接的迟到结果不能覆盖新的连接状态。
+      if (generation === connectionGeneration) {
+        mode = next
+        unavailableReason = reason
+      }
+      return next
+    }
     connecting = (async () => {
-      if (hasMcpObject()) {
+      const bridge = typeof window === 'undefined' ? undefined : window.mcp
+      if (bridge) {
+        if (typeof bridge.callTool !== 'function' || typeof bridge.connect !== 'function') {
+          diagnose('connect', 'bridge-incomplete')
+          return remember('unavailable')
+        }
         try {
-          await window.mcp!.connect()
-          mode = 'device'
-          return mode
+          const result = await bridge.connect()
+          // connect 的成功载荷未定义，void 仍兼容；明确失败绝不缓存为 device。
+          if (result === false || (isObject(result) && result.isError === true)) {
+            diagnose('connect', 'connect-failed', isObject(result) ? result.errorCode : undefined)
+            return remember('unavailable', 'connect-failed')
+          }
+          return remember('device')
         } catch {
-          // connect 失败：按不可用处理，由页面给重试入口
-          mode = 'unavailable'
-          return mode
+          diagnose('connect', 'connect-rejected')
+          return remember('unavailable', 'connect-failed')
         }
       }
-      mode = import.meta.env.DEV ? 'simulated' : 'unavailable'
-      return mode
+      return remember(import.meta.env.DEV ? 'simulated' : 'unavailable')
     })().finally(() => {
-      connecting = null
+      if (generation === connectionGeneration) connecting = null
     })
   }
   return connecting
@@ -91,8 +121,10 @@ export async function resolveBackScreenMode(): Promise<BackScreenMode> {
 
 /** 重置模式缓存（真机重试入口用） */
 export function resetBackScreenMode(): void {
+  connectionGeneration += 1
   mode = null
   connecting = null
+  unavailableReason = 'unavailable'
 }
 
 function fail(reason: BackScreenReason, simulated = false): BackScreenResult {
@@ -100,25 +132,48 @@ function fail(reason: BackScreenReason, simulated = false): BackScreenResult {
 }
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<BackScreenResult> {
+  const generation = connectionGeneration
   const current = await resolveBackScreenMode()
-  if (current === 'unavailable') return fail('unavailable')
+  if (generation !== connectionGeneration) return fail('connect-failed')
+  if (current === 'unavailable') {
+    diagnose(name, unavailableReason)
+    return fail(unavailableReason)
+  }
   if (current === 'simulated') {
     // 预览模拟桥：不产生真实设备效果，仅让主屏联调流程走通
     return { ok: true, reason: 'ok', simulated: true }
   }
   try {
     const result = await window.mcp!.callTool(name, args)
-    if (result?.isError) return fail('call-failed')
+    if (isObject(result) && result.isError === true) {
+      diagnose(name, 'tool-is-error', result.errorCode)
+      return fail('call-failed')
+    }
+    if (!hasAcknowledgment(result)) {
+      diagnose(name, 'invalid-response')
+      return fail('invalid-response')
+    }
     return { ok: true, reason: 'ok', simulated: false }
   } catch {
+    diagnose(name, 'tool-rejected')
     return fail('call-failed')
   }
 }
 
 /** 提交一帧 17×23 点阵（0 灭、非 0 亮） */
 export async function pushFrame(frame: MatrixFrame): Promise<BackScreenResult> {
-  if (!Array.isArray(frame) || frame.length !== MATRIX_SIZE) return fail('invalid-frame')
-  return callTool('set_back_screen_frame', { frame })
+  if (!Array.isArray(frame) || frame.length !== MATRIX_SIZE) {
+    diagnose('set_back_screen_frame', 'invalid-frame')
+    return fail('invalid-frame')
+  }
+  // 不能用 every：它会跳过稀疏数组中的空槽。
+  for (let index = 0; index < MATRIX_SIZE; index += 1) {
+    if (!Number.isInteger(frame[index]) || frame[index] < 0 || frame[index] > 255) {
+      diagnose('set_back_screen_frame', 'invalid-frame')
+      return fail('invalid-frame')
+    }
+  }
+  return callTool('set_back_screen_frame', { frame: frame.slice() })
 }
 
 /** 清除背屏自定义帧，恢复系统 agent 状态显示 */

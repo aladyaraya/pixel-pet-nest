@@ -108,9 +108,9 @@ async function buildTarget(target) {
     const finalizer = target === 'pwa' ? 'finalize-pwa.mjs' : 'finalize-build.mjs'
     if (!existsSync(path.join(SCRIPTS, finalizer))) throw new Error(`缺少 ${finalizer}`)
     stage = 'build'
-    const vite = path.join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'vite.cmd' : 'vite')
+    const vite = path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js')
     const configArgs = target === 'native' ? ['build'] : ['build', '--config', `vite.config.${target}.ts`]
-    const buildCode = await run(`vite:${target}`, vite, configArgs, deferredOutput)
+    const buildCode = await run(`vite:${target}`, process.execPath, [vite, ...configArgs], deferredOutput)
     if (buildCode !== 0) throw new Error(`构建失败 (exit ${buildCode})`)
     stage = 'finalize'
     const flags = target === 'pwa' ? [] : [target === 'native' ? '--client' : '--admin']

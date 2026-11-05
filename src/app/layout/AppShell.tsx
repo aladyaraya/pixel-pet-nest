@@ -42,6 +42,11 @@ export function AppShell() {
   const isRoot = ROOT_ROUTES.has(pathname)
   const hasHeader = pageTitle !== undefined
 
+  useEffect(() => {
+    // 三个页面各自从顶部开始；从图鉴底部返回时不沿用旧滚动位置。
+    if (mainRef.current) mainRef.current.scrollTop = 0
+  }, [pathname])
+
   // 「顶部穿透」与顶栏二选一：同时声明时穿透被顶栏盖住、不会生效——dev 环境提示一下，
   // 免得页面"声明了穿透却没效果"而排查不到原因（生产构建会整段移除）。
   useEffect(() => {
@@ -60,7 +65,7 @@ export function AppShell() {
               <button
                 type="button"
                 onClick={() => {
-                  if (import.meta.env.VITE_APP_TARGET === 'pwa' && !(window.history.state?.idx > 0)) navigate('/', { replace: true })
+                  if (!(window.history.state?.idx > 0)) navigate('/', { replace: true })
                   else navigate(-1)
                 }}
                 aria-label="返回"

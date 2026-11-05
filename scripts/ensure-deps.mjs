@@ -39,7 +39,17 @@ const LOCK_STALE_MS = 15 * 60 * 1000
 // 等待上限比"陈旧"阈值大一点：先给一次接管陈旧锁的机会，再判定为超时
 const LOCK_WAIT_MS = LOCK_STALE_MS + 2 * 60 * 1000
 
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+// Windows 的 .cmd 不能作为普通可执行文件传给 spawnSync。
+function npmCommand() {
+  const candidates = [
+    process.env.npm_execpath,
+    path.join(path.dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
+  ].filter(Boolean)
+  const cli = candidates.find((file) => file.endsWith('.js') && existsSync(file))
+  if (cli) return [process.execPath, [cli]]
+  if (process.platform !== 'win32') return ['npm', []]
+  throw new Error('找不到 npm CLI，请通过 npm run deps 执行依赖安装')
+}
 
 function mtime(file) {
   try {
@@ -117,7 +127,8 @@ try {
     console.log('· 依赖已由并发的另一个构建进程装好')
   } else {
     console.log(`· 依赖缺失（${reason}）——沙箱回收后属正常现象，正在重新安装...`)
-    const result = spawnSync(npm, ['install', '--no-audit', '--no-fund'], { cwd: ROOT, stdio: 'inherit' })
+    const [npm, prefix] = npmCommand()
+    const result = spawnSync(npm, [...prefix, 'install', '--no-audit', '--no-fund'], { cwd: ROOT, stdio: 'inherit' })
     if (result.status !== 0) failed = result.status ?? 1
     else console.log('· 依赖已就绪')
   }

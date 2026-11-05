@@ -1,65 +1,130 @@
 /* =============================================================================
- * 本地记录：一份带版本号的记录保存 settings、当前 session 和 6 个角色的计数
+ * 本地记录：一份带版本号的记录保存 settings、当前 session 和各角色的计数
  * （PRD 06 章「本地最小数据」）。写入统一串行排队，避免竞态覆盖。
  *
  * native 走壳的 setStorage / getStorage（需已同意隐私协议）；
  * 浏览器 / PWA 由 bridge 的 browser adapter 落到 localStorage。
- * 记录损坏或写入不可用时抛错，由调用方说明影响并允许临时体验。
+ * 读取失败或记录损坏时保留原数据，由调用方阻止覆盖并提供重新读取入口。
  * ========================================================================== */
 
-import { invokeNative, BridgeError } from '@/shared/bridge'
-import { DEFAULT_DURATION_MS } from './types'
-import type { EggRecord, EggSession, PetCount } from './types'
+import { invokeNative } from '@/shared/bridge'
+import { PET_BY_ID } from './pets'
+import { DEFAULT_DURATION_MS, isValidDuration, PET_TIERS, PHASE_LABEL, tierForDuration } from './types'
+import type { EggPhase, EggRecord, EggSession, PetCount, PetTier } from './types'
 
-export const RECORD_VERSION = 1
+export const RECORD_VERSION = 2
+// key 保持不变，版本迁移只更新内容，避免已有收藏被遗留在旧 key 下。
 const RECORD_KEY = 'egg.record.v1'
 
 export function defaultRecord(): EggRecord {
   return {
     version: RECORD_VERSION,
-    settings: { sound: false, flipReveal: false, lastDurationMs: DEFAULT_DURATION_MS, privacyAgreed: null },
+    settings: { sound: false, flipReveal: false, lastDurationMs: DEFAULT_DURATION_MS, privacyAgreed: null, backScreenPetId: null },
     session: null,
     collection: {},
   }
 }
 
-function isValidRecord(value: unknown): value is EggRecord {
-  if (!value || typeof value !== 'object') return false
-  const record = value as Partial<EggRecord>
-  if (typeof record.version !== 'number') return false
-  if (!record.settings || typeof record.settings !== 'object') return false
-  const session = record.session
-  if (session != null) {
-    if (typeof session !== 'object') return false
-    const s = session as Partial<EggSession>
-    if (
-      typeof s.sessionId !== 'string' ||
-      typeof s.startedAt !== 'number' ||
-      typeof s.deadlineAt !== 'number' ||
-      typeof s.durationMs !== 'number' ||
-      typeof s.petId !== 'string' ||
-      typeof s.phase !== 'string' ||
-      (s.revealedAt !== null && typeof s.revealedAt !== 'number') ||
-      !Array.isArray(s.hintedPhases)
-    ) {
-      return false
-    }
-  }
-  if (!record.collection || typeof record.collection !== 'object') return false
-  return true
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
 }
 
-/** 读取本地记录；不存在 / 损坏时返回 null（调用方按「允许临时体验」处理） */
-export async function loadRecord(): Promise<EggRecord | null> {
-  try {
-    const { data } = await invokeNative('getStorage', { key: RECORD_KEY })
-    if (data == null) return null
-    if (!isValidRecord(data)) return null
-    return data
-  } catch (error) {
-    if (error instanceof BridgeError && error.code === 'privacy') throw error
-    return null
+function isTimestamp(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isPhase(value: unknown): value is EggPhase {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(PHASE_LABEL, value)
+}
+
+/** 纯解析/迁移：旧局保留既定角色与时间，收藏次数、日期不重新计算。 */
+export function migrateRecord(value: unknown): EggRecord | null {
+  if (!isObject(value) || (value.version !== 1 && value.version !== RECORD_VERSION)) return null
+  if (!isObject(value.settings) || !isObject(value.collection)) return null
+
+  const collection: Record<string, PetCount> = {}
+  for (const [petId, entry] of Object.entries(value.collection)) {
+    if (!isObject(entry) || typeof entry.count !== 'number' ||
+      !Number.isSafeInteger(entry.count) || entry.count < 0 ||
+      (entry.lastRevealedAt !== null && !isTimestamp(entry.lastRevealedAt))) return null
+    Object.defineProperty(collection, petId, {
+      value: { count: entry.count, lastRevealedAt: entry.lastRevealedAt },
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    })
   }
+
+  let session: EggSession | null = null
+  if (value.session != null) {
+    const s = value.session
+    if (!isObject(s) || typeof s.sessionId !== 'string' || !s.sessionId ||
+      !isTimestamp(s.startedAt) || !isTimestamp(s.deadlineAt) ||
+      !isTimestamp(s.durationMs) || s.durationMs <= 0 ||
+      typeof s.petId !== 'string' || !Object.prototype.hasOwnProperty.call(PET_BY_ID, s.petId) ||
+      !isPhase(s.phase) || (s.revealedAt !== null && !isTimestamp(s.revealedAt)) ||
+      !Array.isArray(s.hintedPhases) || !s.hintedPhases.every(isPhase)) return null
+
+    const tier = value.version === 1 ? null : s.tier
+    if (tier !== null && (typeof tier !== 'string' || !PET_TIERS.includes(tier as PetTier))) return null
+    if (tier !== null && (!isValidDuration(s.durationMs) || tierForDuration(s.durationMs) !== tier ||
+      PET_BY_ID[s.petId].tier !== tier)) return null
+
+    session = {
+      sessionId: s.sessionId,
+      tier: tier as PetTier | null,
+      durationMs: s.durationMs,
+      startedAt: s.startedAt,
+      deadlineAt: s.deadlineAt,
+      petId: s.petId,
+      phase: s.phase,
+      revealedAt: s.revealedAt,
+      hintedPhases: [...s.hintedPhases],
+    }
+  }
+
+  const settings = value.settings
+  return {
+    version: RECORD_VERSION,
+    settings: {
+      sound: settings.sound === true,
+      flipReveal: settings.flipReveal === true,
+      lastDurationMs: isValidDuration(settings.lastDurationMs) ? settings.lastDurationMs : DEFAULT_DURATION_MS,
+      privacyAgreed: typeof settings.privacyAgreed === 'boolean' ? settings.privacyAgreed : null,
+      backScreenPetId: typeof settings.backScreenPetId === 'string' &&
+        Object.prototype.hasOwnProperty.call(PET_BY_ID, settings.backScreenPetId) &&
+        collection[settings.backScreenPetId]?.count > 0 ? settings.backScreenPetId : null,
+    },
+    session,
+    collection,
+  }
+}
+
+/** 迁移已在内存完成，但保存失败：上层继续使用 record，并提供重试保存入口。 */
+export class RecordMigrationError extends Error {
+  readonly record: EggRecord
+
+  constructor(record: EggRecord) {
+    super('原有记录还没保存，请重试')
+    this.name = 'RecordMigrationError'
+    this.record = record
+  }
+}
+
+/** 仅明确不存在（data: null）返回 null；失败或未知格式不能当作空收藏覆盖。 */
+export async function loadRecord(): Promise<EggRecord | null> {
+  const { data } = await invokeNative('getStorage', { key: RECORD_KEY })
+  if (data === null) return null
+  const record = migrateRecord(data)
+  if (!record) throw new Error('本地记录格式暂时无法读取')
+  if (isObject(data) && data.version === 1) {
+    try {
+      await saveRecord(record)
+    } catch {
+      throw new RecordMigrationError(record)
+    }
+  }
+  return record
 }
 
 let writeChain: Promise<void> = Promise.resolve()

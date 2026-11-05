@@ -10,8 +10,7 @@ export const APP_VERSION = '0.1.0'
 /**
  * 文档标题兜底：页面未声明标题时使用（如初始占位页）。
  *
- * 刻意**不用 `APP_NAME`**：应用还没命名时，平台可能把项目 ID 之类的占位值当应用名注入，
- * 直接当标题会把它暴露出去。页面用 `usePageTitle()` 声明标题后，`document.title` 随之更新
- * （见 src/app/layout/PageTitle.tsx）；没有页面声明时回到本兜底值。
+ * 项目已确定名称，使用明确的中文标题，避免首页和标签页仍显示脚手架的“应用”。
+ * 页面用 `usePageTitle()` 声明标题后会覆盖它；这里不增加首页顶栏。
  */
-export const DOC_TITLE_FALLBACK = '应用'
+export const DOC_TITLE_FALLBACK = '这颗蛋快孵出来了'

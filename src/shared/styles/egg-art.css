@@ -1,0 +1,47 @@
+/* Original pixel sprites. Shapes stay on their integer grid at every pose. */
+.pet-art, .egg-scene {
+  position: relative; display: grid; place-items: center; min-width: 0;
+  padding: 0; border: 0; background: none; color: rgb(var(--foreground));
+  isolation: isolate; text-align: center;
+}
+.pet-art { width: 256px; height: 256px; }
+.egg-scene { width: 256px; height: 256px; }
+.pet-art > svg, .egg-scene > svg { display: block; width: 100%; height: 100%; grid-area: 1 / 1; overflow: visible; image-rendering: pixelated; shape-rendering: crispEdges; }
+.egg-scene > .pixel-nest { z-index: -1; }
+.art-interactive { cursor: pointer; touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.art-interactive:focus-visible { outline: 2px dashed rgb(var(--ring)); outline-offset: 4px; box-shadow: none; }
+.paint-ink { fill: rgb(var(--art-ink)); }
+.paint-paper { fill: rgb(var(--art-paper)); }
+.paint-cream { fill: rgb(var(--art-cream)); }
+.paint-shell { fill: rgb(var(--art-shell)); }
+.paint-shell-shade { fill: rgb(var(--art-shell-shade)); }
+.paint-sunlight { fill: rgb(var(--art-sunlight)); }
+.paint-rose { fill: rgb(var(--art-rose)); }
+.paint-terra { fill: rgb(var(--art-terra)); }
+.paint-leaf { fill: rgb(var(--art-leaf)); }
+.paint-leaf-dark { fill: rgb(var(--art-leaf-dark)); }
+.paint-sky { fill: rgb(var(--art-sky)); }
+.paint-sky-dark { fill: rgb(var(--art-sky-dark)); }
+.paint-lavender { fill: rgb(var(--art-lavender)); }
+.paint-plum { fill: rgb(var(--art-plum)); }
+.paint-gold { fill: rgb(var(--art-gold)); }
+.paint-sand { fill: rgb(var(--art-sand)); }
+.paint-cocoa { fill: rgb(var(--art-cocoa)); }
+.paint-ground { fill: rgb(var(--art-ground)); }
+.paint-silhouette { fill: rgb(var(--art-silhouette)); }
+.art-no-stroke { stroke: none; }
+.pet-art-speech {
+  position: absolute; z-index: 2; inset: auto -8px 0;
+  padding: 8px 10px; border: 2px solid rgb(var(--art-cocoa));
+  background: rgb(var(--surface)); color: rgb(var(--foreground));
+  box-shadow: 0 3px 0 rgb(var(--border));
+  font-size: var(--text-caption); line-height: var(--leading-caption);
+  pointer-events: none;
+}
+.pet-art-speech::before { content: ''; position: absolute; width: 6px; height: 6px; left: 30%; top: -8px; border-left: 2px solid rgb(var(--art-cocoa)); background: rgb(var(--surface)); }
+.pet-art-speech.is-hidden { opacity: 0; visibility: hidden; }
+.is-thumbnail { width: 96px; height: 96px; }
+.interaction-hint { color: rgb(var(--muted-foreground)); font-size: var(--text-caption); line-height: var(--leading-caption); text-align: center; }
+@media (max-width: 350px) {
+  .pet-art:not(.is-thumbnail), .egg-scene { width: 192px; height: 192px; }
+}

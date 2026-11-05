@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "versionCode": 1,
   "entry": "web/index.html",
-  "description": "把手机正面朝下，让背屏上的蛋慢慢裂开，三分钟后揭晓一只小家伙。",
+  "description": "自定义等待时长，让背屏上的蛋慢慢裂开，遇见温暖的像素伙伴。",
   "orientation": "portrait",
   "fullscreen": false,
   "permissions": []

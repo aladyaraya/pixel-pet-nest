@@ -17,7 +17,7 @@ import { extendTailwindMerge } from 'tailwind-merge'
 const twMerge = extendTailwindMerge({
   extend: {
     classGroups: {
-      'font-size': [{ text: ['caption', 'body', 'title', 'display'] }],
+      'font-size': [{ text: ['caption', 'body', 'title', 'display', 'pixel'] }],
       // 发丝线同理：`border-hairline` 认不出来时会掉进"描边颜色"组，
       // 与 `border-border` 互相顶掉 → 发丝线悄悄变成 1px（或直接没了）。
       'border-w': [{ border: ['hairline'] }],

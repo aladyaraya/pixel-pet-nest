@@ -52,6 +52,22 @@ export default {
         input: 'rgb(var(--input) / <alpha-value>)',
         ring: 'rgb(var(--ring) / <alpha-value>)',
         overlay: 'rgb(var(--overlay) / <alpha-value>)',
+        'tier-low': {
+          DEFAULT: 'rgb(var(--tier-low) / <alpha-value>)',
+          foreground: 'rgb(var(--tier-low-foreground) / <alpha-value>)',
+        },
+        'tier-normal': {
+          DEFAULT: 'rgb(var(--tier-normal) / <alpha-value>)',
+          foreground: 'rgb(var(--tier-normal-foreground) / <alpha-value>)',
+        },
+        'tier-high': {
+          DEFAULT: 'rgb(var(--tier-high) / <alpha-value>)',
+          foreground: 'rgb(var(--tier-high-foreground) / <alpha-value>)',
+        },
+        'tier-ornate': {
+          DEFAULT: 'rgb(var(--tier-ornate) / <alpha-value>)',
+          foreground: 'rgb(var(--tier-ornate-foreground) / <alpha-value>)',
+        },
         toast: {
           DEFAULT: 'rgb(var(--toast) / <alpha-value>)',
           foreground: 'rgb(var(--toast-foreground) / <alpha-value>)',
@@ -76,12 +92,14 @@ export default {
       fontFamily: {
         sans: 'var(--font-sans)',
         mono: 'var(--font-mono)',
+        pixel: 'var(--font-pixel)',
       },
       fontSize: {
         caption: ['var(--text-caption)', { lineHeight: 'var(--leading-caption)' }],
         body: ['var(--text-body)', { lineHeight: 'var(--leading-body)' }],
         title: ['var(--text-title)', { lineHeight: 'var(--leading-title)' }],
         display: ['var(--text-display)', { lineHeight: 'var(--leading-display)' }],
+        pixel: ['var(--text-pixel)', { lineHeight: 'var(--leading-pixel)' }],
       },
       spacing: {
         'safe-top': 'var(--safe-top)',

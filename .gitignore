@@ -21,3 +21,9 @@ capsule/signing/*.keystore
 
 /pwa-build-context.json
 attachments/
+/.acceptance-current/
+/.acceptance-storybook/
+/.acceptance-back-screen/
+/.acceptance-pixel/
+/.acceptance-feedback/
+/.acceptance-final/

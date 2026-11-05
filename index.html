@@ -15,10 +15,8 @@
     <!-- 登录态作用域：App UI 与 Admin UI 各自独立保存会话，同源部署 / 预览下也不会互相串号。
          admin.html 声明 content="admin"；该值由 src/shared/track.ts 读取，决定 auth 的 storageKey，不要删除或改错。 -->
     <meta name="ui-scope" content="app" />
-    <!-- 初始文档标题保持中性：应用未命名时 APP_NAME 可能还是平台注入的占位值（如项目 ID），
-         不能直接当标题暴露。页面用 usePageTitle() 声明标题后 document.title 会随之更新，
-         没有声明时回到 src/shared/config/app.ts 的 DOC_TITLE_FALLBACK（与这里保持一致）。 -->
-    <title>应用</title>
+    <!-- 已确认的应用名称，与 DOC_TITLE_FALLBACK 保持一致；页面标题仍由 usePageTitle 管理。 -->
+    <title>这颗蛋快孵出来了</title>
   </head>
   <body>
     <div id="root"></div>

@@ -14,8 +14,7 @@ interface MatrixViewProps {
 }
 
 /**
- * 17×23 点阵渲染（主屏预览与收藏格共用）：点亮格为主色圆点，熄灭格为弱底圆点。
- * 与背屏同一份帧数据——主屏看到的就是背屏的样子。
+ * 17×23 背屏辅助预览。主屏主体使用独立绘本插画，预览仍复用背屏帧数据。
  */
 export function MatrixView({ frame, dot = 10, silhouette = false, className, label }: MatrixViewProps) {
   const cells = useMemo(() => frame.map((value, index) => ({ index, on: value > 0 })), [frame])

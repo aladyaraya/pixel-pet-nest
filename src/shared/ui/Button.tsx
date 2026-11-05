@@ -44,7 +44,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       // loading 时禁用，避免重复触发原生调用（选图、扫码这类会重复弹窗）
       disabled={disabled || loading}
       className={cn(
-        'inline-flex select-none items-center justify-center gap-2 font-medium',
+        'ui-button inline-flex select-none items-center justify-center gap-2 font-medium',
         'transition-[transform,background-color,filter] duration-fast',
         // 触摸反馈：按下轻微缩放，配合原生 haptic 使用
         'active:scale-[0.97]',
@@ -54,6 +54,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         block && 'w-full',
         className,
       )}
+      data-variant={variant}
       {...props}
     >
       {loading && <Loader2 className="size-4 animate-spin" aria-hidden />}

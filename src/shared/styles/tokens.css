@@ -1,109 +1,76 @@
-/* =============================================================================
- * 设计 token（唯一色值来源）
- *
- * 约束（见 references/05-styling.md）：
- * 1. 字面量色值只允许出现在本文件，其它任何文件都必须使用 token 或 Tailwind 语义类。
- * 2. token 用「空格分隔的 RGB 通道」书写，便于 Tailwind 用 rgb(var(--x) / <alpha-value>) 支持透明度。
- * 3. 新增颜色 = 在 :root 加一个原始色阶 + 一个语义映射，缺一不可。
- * 4. 语义 token 必须成对提供前景与背景（如 --primary / --primary-foreground）。
- * 5. 前景/背景的配对要满足 4.5:1 对比度（可读性红线，门禁 G44 会逐对计算）。
- * 6. 本工程只有一套配色：不得写死色值，也不得加 dark: 变体。
- *
- * 配色推导（本项目）：
- *   主色用**暖琥珀**。依据：① PRD 定主屏为深色页——手机正面朝下放在桌面，
- *   暗光环境下等待与揭晓，色彩角色取「暗（沉浸）」；② 孵蛋题材的联想是暖光源与蛋壳，
- *   琥珀是深色桌面场景里识别度最高的暖色；③ 玩具形态需要一个高识别强调色制造揭晓惊喜。
- *   中性色统一**暖温**（不用骨架的冷灰）；强调色只给主按钮、倒计时与裂纹高光。
- * ========================================================================== */
-
+/* 温暖像素宠物机：奶油底、深棕轮廓、陶橘操作和柔和的自然色。 */
 :root {
-  /* ---------- 原始色阶：暖灰（深色桌面主题） ---------- */
-  --gray-0: 255 255 255;
-  --gray-1000: 0 0 0;
-  --warm-950: 23 19 17;
-  --warm-900: 30 26 23;
-  --warm-850: 38 33 29;
-  --warm-800: 46 40 35;
-  --warm-700: 60 52 46;
-  --warm-600: 82 71 63;
-  --warm-500: 116 101 90;
-  --warm-400: 148 131 117;
-  --warm-300: 183 164 148;
-  --warm-200: 214 196 181;
-  --warm-100: 235 221 209;
-  --warm-50: 247 241 235;
+  --background: 255 248 238;
+  --foreground: 62 43 35;
+  --surface: 255 252 246;
+  --surface-foreground: 62 43 35;
+  --surface-muted: 245 233 216;
+  --muted: 245 233 216;
+  --muted-foreground: 123 98 84;
+  --primary: 178 74 50;
+  --primary-foreground: 255 249 241;
+  --primary-soft: 249 226 213;
+  --secondary: 240 226 207;
+  --secondary-foreground: 82 57 42;
+  --accent: 247 232 211;
+  --accent-foreground: 62 43 35;
+  --success: 63 104 72;
+  --success-foreground: 255 252 246;
+  --warning: 133 86 28;
+  --warning-foreground: 255 248 238;
+  --danger: 165 52 43;
+  --danger-foreground: 255 252 246;
+  --border: 223 205 188;
+  --input: 172 145 122;
+  --ring: 178 74 50;
+  --overlay: 62 43 35;
+  --toast: 62 43 35;
+  --toast-foreground: 255 249 241;
 
-  /* ---------- 原始色阶：琥珀（品牌色，蛋壳与暖光源） ---------- */
-  --amber-100: 253 240 214;
-  --amber-200: 250 224 168;
-  --amber-300: 246 201 110;
-  --amber-400: 243 178 58;
-  --amber-500: 232 156 32;
-  --amber-600: 197 126 20;
-  --amber-700: 150 92 12;
-  --amber-900: 66 44 14;
+  --tier-low: 234 240 223;
+  --tier-low-foreground: 76 97 54;
+  --tier-normal: 224 239 235;
+  --tier-normal-foreground: 49 93 85;
+  --tier-high: 238 229 246;
+  --tier-high-foreground: 101 73 126;
+  --tier-ornate: 255 240 200;
+  --tier-ornate-foreground: 133 86 28;
 
-  /* ---------- 原始色阶：语义色 ---------- */
-  --green-300: 74 222 128;
-  --green-800: 22 101 52;
-  --red-300: 252 165 165;
-  --red-400: 248 113 113;
-  --red-700: 185 28 28;
+  /* 原创 SVG 的纸张、颜料与描边。色彩只承担画材，不替代等级文字。 */
+  --art-ink: 78 55 43;
+  --art-paper: 255 252 246;
+  --art-cream: 255 246 220;
+  --art-shell: 247 223 170;
+  --art-shell-shade: 231 192 127;
+  --art-sunlight: 255 239 189;
+  --art-rose: 232 161 143;
+  --art-terra: 190 103 72;
+  --art-leaf: 144 169 112;
+  --art-leaf-dark: 91 119 72;
+  --art-sky: 155 194 199;
+  --art-sky-dark: 74 118 132;
+  --art-lavender: 188 169 211;
+  --art-plum: 117 93 150;
+  --art-gold: 222 165 70;
+  --art-sand: 211 174 124;
+  --art-cocoa: 151 115 81;
+  --art-ground: 237 216 187;
+  --art-silhouette: 197 182 163;
+  --pixel-shadow: 191 151 113;
+  --pixel-panel-edge: 203 173 142;
+  --font-pixel: 'Fusion Pixel', 'HarmonyOS Sans SC', 'PingFang SC', sans-serif;
+  --text-pixel: 24px;
+  --leading-pixel: 32px;
 
-  /* ---------- 语义 token（深色主题，唯一一套） ---------- */
-  --background: var(--warm-950);
-  --foreground: var(--warm-50);
-
-  --surface: var(--warm-900);
-  --surface-foreground: var(--warm-50);
-  --surface-muted: var(--warm-850);
-
-  --muted: var(--warm-850);
-  /* 次要文字：必须能在 background / surface / muted 三种底上都达到 4.5:1（门禁 G44 会算） */
-  --muted-foreground: var(--warm-300);
-
-  --primary: var(--amber-500);
-  --primary-foreground: 40 24 6;
-  --primary-soft: var(--amber-900);
-
-  --secondary: var(--warm-800);
-  --secondary-foreground: var(--warm-100);
-
-  --accent: var(--warm-800);
-  --accent-foreground: var(--warm-50);
-
-  /* 状态色同时要当"文字色"用（徽标 / 提示）：深色底上必须够亮才能到 4.5:1 */
-  --success: var(--green-300);
-  --success-foreground: var(--warm-950);
-  --warning: var(--amber-300);
-  --warning-foreground: var(--warm-950);
-  --danger: var(--red-400);
-  --danger-foreground: var(--warm-950);
-
-  --border: var(--warm-700);
-  --input: var(--warm-600);
-  --ring: var(--amber-400);
-  --overlay: 0 0 0;
-
-  /* 轻提示（App UI 顶部胶囊）：暖白底 + 深字，不随 tone 变色——同一套视觉，靠文案表达结果 */
-  --toast: var(--warm-100);
-  --toast-foreground: var(--warm-950);
-
-  /* ---------- 形状 ---------- */
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
   --radius-xl: 20px;
   --radius-full: 9999px;
-
-  /* 发丝线：真机（iOS / 安卓）都是 2x/3x 屏，0.5px 刚好落在 1 物理像素上，比 1px 更细、更接近原生分隔线。
-   * 用法：App UI 的分隔线用 border-hairline（tailwind.config.js 已挂好）；
-   * 控件描边（按钮 / 输入框）仍用 1px（border），否则会糊成看不见。 */
   --hairline: 0.5px;
-
-  --shadow-sm: 0 1px 2px 0 rgb(15 17 21 / 0.06);
-  --shadow-md: 0 4px 12px -2px rgb(15 17 21 / 0.1);
-  --shadow-lg: 0 12px 32px -8px rgb(15 17 21 / 0.18);
+  --shadow-sm: 0 2px 6px 0 rgb(var(--art-ink) / 0.05);
+  --shadow-md: 0 5px 16px -4px rgb(var(--art-ink) / 0.10);
+  --shadow-lg: 0 12px 32px -8px rgb(var(--art-ink) / 0.14);
 
   /* ---------- 字体与排版 ---------- */
   --font-sans: -apple-system, BlinkMacSystemFont, 'HarmonyOS Sans SC', 'PingFang SC',
