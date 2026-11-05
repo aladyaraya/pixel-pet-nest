@@ -19,9 +19,9 @@
 .paint-rose { fill: rgb(var(--art-rose)); }
 .paint-terra { fill: rgb(var(--art-terra)); }
 .paint-leaf { fill: rgb(var(--art-leaf)); }
-.paint-leaf-dark { fill: rgb(var(--art-leaf-dark)); }
+.paint-leaf-shade { fill: rgb(var(--art-leaf-shade)); }
 .paint-sky { fill: rgb(var(--art-sky)); }
-.paint-sky-dark { fill: rgb(var(--art-sky-dark)); }
+.paint-sky-shade { fill: rgb(var(--art-sky-shade)); }
 .paint-lavender { fill: rgb(var(--art-lavender)); }
 .paint-plum { fill: rgb(var(--art-plum)); }
 .paint-gold { fill: rgb(var(--art-gold)); }

@@ -5,7 +5,7 @@ import type { EggPhase } from './types'
 export type PixelMotion = 'idle-a' | 'idle-b' | 'tap' | 'hold'
 export const PIXEL_PAINT = {
   K: 'ink', P: 'paper', C: 'cream', S: 'shell', H: 'shell-shade', U: 'sunlight',
-  R: 'rose', T: 'terra', L: 'leaf', D: 'leaf-dark', B: 'sky', N: 'sky-dark',
+  R: 'rose', T: 'terra', L: 'leaf', D: 'leaf-shade', B: 'sky', N: 'sky-shade',
   V: 'lavender', M: 'plum', G: 'gold', A: 'sand', O: 'cocoa', E: 'ground',
 } as const
 type Ink = keyof typeof PIXEL_PAINT
