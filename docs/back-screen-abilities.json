@@ -1,0 +1,188 @@
+{
+  "connector_id": "ic_atomic_990001",
+  "version": "1.0.0",
+  "ability_count": 17,
+  "abilities": [
+    {
+      "name": "clear_back_screen_frame",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "get_back_screen_auto_brightness",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "get_back_screen_auto_rotate",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "get_back_screen_basic_type",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "get_back_screen_brightness",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "get_back_screen_camera_link",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "get_back_screen_display_info",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "get_back_screen_display_mode",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "set_back_screen_auto_brightness",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled"
+        ]
+      }
+    },
+    {
+      "name": "set_back_screen_auto_rotate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled"
+        ]
+      }
+    },
+    {
+      "name": "set_back_screen_basic_type",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "set_back_screen_brightness",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brightness": {
+            "type": "integer",
+            "description": "1-255"
+          }
+        },
+        "required": [
+          "brightness"
+        ]
+      }
+    },
+    {
+      "name": "set_back_screen_camera_link",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled"
+        ]
+      }
+    },
+    {
+      "name": "set_back_screen_display_mode",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      }
+    },
+    {
+      "name": "set_back_screen_frame",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "frame": {
+            "type": "array",
+            "description": "17x23 行优先一维亮度数组，长度 391，整数 0-255，下标 y*17+x"
+          }
+        },
+        "required": [
+          "frame"
+        ]
+      }
+    },
+    {
+      "name": "sleep_back_screen",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "wake_up_back_screen",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  ],
+  "_source": "由平台 inspect_connector(ic_atomic_990001) 的 abilities/build_options.capabilityNames 整理生成，供本环境复跑契约脚本"
+}

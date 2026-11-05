@@ -44,14 +44,14 @@ async function eventually(check, advanceClock = false) {
 async function checkTarget(label, phase) {
   let snapshot
   await eventually(async () => {
-    snapshot = await page.evaluate(async key => {
+    snapshot = await page.evaluate(async ({ key, base }) => {
       const record = JSON.parse(localStorage.getItem(key))
-      const { frameForPhase } = await import('/src/shared/egg/patterns.ts')
-      const { petFrame } = await import('/src/shared/egg/pets.ts')
+      const { frameForPhase } = await import(base + 'src/shared/egg/patterns.ts')
+      const { petFrame } = await import(base + 'src/shared/egg/pets.ts')
       const expected = record.session && record.session.phase !== 'revealed'
         ? frameForPhase(record.session.phase) : petFrame(record.settings.backScreenPetId)
       return { record, expected, commands: window.__contract.commands }
-    }, key)
+    }, { key, base })
     assert.equal(snapshot.record.session.phase, phase)
     assert.equal(snapshot.commands.at(-1)?.name, 'set_back_screen_frame')
     assert.deepEqual(snapshot.commands.at(-1).args.frame, snapshot.expected)

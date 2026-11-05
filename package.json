@@ -21,7 +21,8 @@
     "test:feedback": "node scripts/acceptance-feedback.mjs",
     "test:recovery": "node scripts/acceptance-recovery.mjs",
     "test:scheduler": "node --test src/shared/egg/backScreenScheduler.test.mjs",
-    "test:back-screen": "node --test src/shared/egg/backScreen.test.mjs src/shared/egg/backScreenScheduler.test.mjs"
+    "test:back-screen": "node --test src/shared/egg/backScreen.test.mjs src/shared/egg/backScreenScheduler.test.mjs",
+    "test:back-screen-failpaths": "node scripts/verify-back-screen-failpaths.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.1",
