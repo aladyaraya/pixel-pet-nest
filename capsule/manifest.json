@@ -1,10 +1,10 @@
 {
   "applicationId": "ai_p_0b48bb06f8c0d4dd",
-  "name": "这颗蛋快孵出来了",
+  "name": "破壳倒计时",
   "version": "0.1.0",
   "versionCode": 1,
   "entry": "web/index.html",
-  "description": "自定义等待时长，让背屏上的蛋慢慢裂开，遇见温暖的像素伙伴。",
+  "description": "自定义倒计时，让背屏上的蛋慢慢裂开，遇见温暖的像素伙伴。",
   "orientation": "portrait",
   "fullscreen": false,
   "permissions": []

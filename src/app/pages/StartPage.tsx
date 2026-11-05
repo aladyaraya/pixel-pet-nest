@@ -6,6 +6,7 @@ import { Dialog } from '@/shared/ui/Dialog'
 import { Input } from '@/shared/ui/Input'
 import { useToast } from '@/shared/ui/Toast'
 import { useEgg } from '@/shared/egg/EggProvider'
+import { APP_NAME } from '@/shared/config/app'
 import { DEFAULT_DURATION_MS, PHASE_LABEL, formatDuration, isValidDuration, tierForDuration, TIER_LABEL } from '@/shared/egg/types'
 import { PETS, PET_BY_ID } from '@/shared/egg/pets'
 import { EggScene } from '@/app/components/EggScene'
@@ -104,7 +105,7 @@ export function StartPage() {
   return (
     <div className="page story-page start-page">
       <div className="start-toolbar">
-        <span className="story-wordmark"><Egg className="size-5" aria-hidden />孵一颗</span>
+        <span className="story-wordmark"><Egg className="size-5" aria-hidden />{APP_NAME}</span>
         <button type="button" className="sound-toggle" aria-pressed={settings.sound}
           onClick={() => updateSettings({ sound: !settings.sound })}>
           {settings.sound ? <Volume2 className="size-4" aria-hidden /> : <VolumeX className="size-4" aria-hidden />}
