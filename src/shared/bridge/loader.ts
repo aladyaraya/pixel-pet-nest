@@ -49,7 +49,7 @@ let cached: Promise<BridgeHandle> | undefined
 
 export function loadBridge(): Promise<BridgeHandle> {
   if (cached) return cached
-  cached = (async (): Promise<BridgeHandle> => {
+  const attempt: Promise<BridgeHandle> = (async (): Promise<BridgeHandle> => {
     if (import.meta.env.VITE_APP_TARGET === 'pwa') {
       const { createBrowserSdk } = await import('./browser')
       return { mode: 'browser', sdk: createBrowserSdk() }
@@ -62,6 +62,12 @@ export function loadBridge(): Promise<BridgeHandle> {
     }
     if (import.meta.env.DEV && forced !== 'native') return mockHandle()
     throw new BridgeError('unsupported', 'initBridge', '原生能力不可用')
-  })()
-  return cached
+  })().catch((error: unknown) => {
+    // 宿主重建 WebView 时 SDK 可能稍后才就绪。只缓存成功连接和进行中的探测，
+    // 失败必须允许下一次显式读取重新探测，不能永久复用 rejected Promise。
+    if (cached === attempt) cached = undefined
+    throw error
+  })
+  cached = attempt
+  return attempt
 }

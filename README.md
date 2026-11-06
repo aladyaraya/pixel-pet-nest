@@ -53,7 +53,7 @@
 
 需要 Node.js ≥20.19（本轮使用24.17）、npm，以及可运行 `keytool` 的 JDK。浏览器预览无需 JDK；完整客户端构建会在缺少签名文件时生成本地调试证书，需要 JDK 的 `bin` 在 PATH，或设置 `JAVA_HOME`／`KEYTOOL`。调试签名不用于正式发布，私钥和 `.env.local` 不进入 Git。
 
-新仓库为 `aladyaraya/pixel-pet-nest`（私有），使用已获访问权限的账号克隆：
+仓库为 `aladyaraya/pixel-pet-nest`：
 
 ```bash
 gh repo clone aladyaraya/pixel-pet-nest
@@ -86,3 +86,5 @@ npm run test:recovery -- http://127.0.0.1:5179/ # 读档保护与后台翻面回
 二次开发先读 `docs/handover.md`。本轮已确认的需求与实现落点、数据兼容规则记录在该文档中；原始 `docs/这颗蛋快孵出来了-PRD.docx` 保留为 V0.1 历史需求，不改写原件。新旧需求有差异时，以本轮确认的规则为准。
 
 本次新仓库交付的测试结果、最终修复与待做事项见 [最终验收](docs/final-acceptance.md)。运行入口、设备契约、签名与接手顺序见 [交接文档](docs/handover.md)。旧版 `egg-handover.bundle` 历史包已从当前仓库移除，可在历史提交中查看；它不是 APK，当前源码以本仓库 `main` 分支为准。
+
+0.1.1（2026-11-06）修复原生连接首次失败后无法重新读档、恢复时漏订生命周期事件，以及翻面传感器请求堆积；读档失败增加排查代码，继续保留原进度和收藏。对应回归命令为 `npm run test:recovery-unit`、`npm run test:native-reload` 和 `npm run test:background-runtime`，后两项需要先执行 `npm run build:client`。此次交付为 GitHub 源码更新，APK 仍由原平台打包，锁屏后最初重载的真机原因尚未确认。

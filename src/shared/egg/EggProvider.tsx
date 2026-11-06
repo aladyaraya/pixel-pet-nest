@@ -37,6 +37,7 @@ import {
   defaultRecord,
   loadRecord,
   RecordMigrationError,
+  RecordReadError,
   saveRecord,
 } from './storage'
 import { PET_BY_ID, petFrame, pickPetId, type Pet } from './pets'
@@ -92,6 +93,8 @@ export interface EggContextValue {
   loaded: boolean
   /** 读取失败时保留原记录，所有写入暂停。 */
   loadError: string | null
+  /** 不含原始存档内容的读档排查代码。 */
+  loadErrorCode: string | null
   retryLoad: () => void
   starting: boolean
   saving: boolean
@@ -137,6 +140,7 @@ export function EggProvider({ children }: { children: ReactNode }) {
   const [record, setRecord] = useState<EggRecord>(defaultRecord)
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadErrorCode, setLoadErrorCode] = useState<string | null>(null)
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [starting, setStarting] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -170,6 +174,8 @@ export function EggProvider({ children }: { children: ReactNode }) {
   const monoBase = useRef<{ wall: number; mono: number } | null>(null)
   const flipStop = useRef(false)
   const flipGeneration = useRef(0)
+  // 跨阶段／前后台保留占用，避免旧请求未回执时叠加传感器轮询。
+  const flipReadPending = useRef(false)
 
   const session = record.session
   const phase = session ? computePhase(session, now) : null
@@ -296,6 +302,7 @@ export function EggProvider({ children }: { children: ReactNode }) {
     loadedRef.current = false
     setLoaded(false)
     setLoadError(null)
+    setLoadErrorCode(null)
     setLoadAttempt(attempt => attempt + 1)
   }, [])
 
@@ -307,6 +314,7 @@ export function EggProvider({ children }: { children: ReactNode }) {
     loadedRef.current = false
     setLoaded(false)
     setLoadError(null)
+    setLoadErrorCode(null)
     // 背屏服务可能迟迟不返回；本地进度和前屏不依赖它完成连接。
     void resolveBackScreenMode().then((mode) => {
       if (!isCancelled()) setBackScreenMode(mode)
@@ -331,9 +339,24 @@ export function EggProvider({ children }: { children: ReactNode }) {
           next = error.record
           publishStorageWarning(error.message)
         } else {
-          setLoadError(error instanceof BridgeError && error.code === 'privacy'
+          const bridgeError = error instanceof BridgeError ? error : null
+          const code = error instanceof RecordReadError ? error.code
+            : bridgeError?.code === 'privacy' ? 'EGG_PRIVACY'
+              : bridgeError?.apiName === 'initBridge' ? 'EGG_BRIDGE_INIT'
+                : bridgeError?.code === 'timeout' ? 'EGG_STORAGE_TIMEOUT' : 'EGG_STORAGE_READ'
+          setLoadErrorCode(code)
+          setLoadError(code === 'EGG_PRIVACY'
             ? '请先完成隐私授权，再重新读取本机记录。'
-            : '暂时无法读取进度与收藏，原有记录会保留。请重试。')
+            : code === 'EGG_BRIDGE_INIT'
+              ? '设备存储连接尚未就绪，原有记录会保留。请稍后重新读取。'
+              : code === 'EGG_STORAGE_TIMEOUT'
+                ? '读取进度与收藏超时，原有记录会保留。请重新读取。'
+                : code === 'EGG_RECORD_FORMAT' || code === 'EGG_RECORD_VERSION'
+                  ? '暂时无法识别本机记录，原有进度与收藏已保留。请保留排查代码，以便处理。'
+                  : '暂时无法读取进度与收藏，原有记录会保留。请重试。')
+          nativeLog.w('egg', 'record load failed', {
+            code, attempt: loadAttempt + 1, api: bridgeError?.apiName, bridgeCode: bridgeError?.code,
+          })
           return
         }
       }
@@ -348,6 +371,7 @@ export function EggProvider({ children }: { children: ReactNode }) {
       setNow(wall)
       loadedRef.current = true
       setLoadError(null)
+      setLoadErrorCode(null)
       setLoaded(true)
     })()
     const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)')
@@ -521,7 +545,8 @@ export function EggProvider({ children }: { children: ReactNode }) {
     window.addEventListener('pagehide', onPageHide)
     window.addEventListener('pageshow', onPageShow)
     updateForeground()
-    ;(async () => {
+    // 尽早订阅读档期间的前后台变化；读档成功后再装一次，补回首次桥接失败时的漏订。
+    void (async () => {
       try {
         offShow = await onNativeEvent('appShow', () => {
           nativeForeground.current = true
@@ -553,7 +578,7 @@ export function EggProvider({ children }: { children: ReactNode }) {
       foregroundRef.current = false
       flipStop.current = true
     }
-  }, [syncBackScreen, cancelDueVibrationTail])
+  }, [loaded, syncBackScreen, cancelDueVibrationTail])
 
   /* ---------- 动作：开始一局 ---------- */
   const startSession = useCallback(
@@ -681,8 +706,9 @@ export function EggProvider({ children }: { children: ReactNode }) {
     flipStop.current = !foregroundRef.current || document.visibilityState === 'hidden'
     const canReadSensor = () => loadedRef.current && foregroundRef.current && document.visibilityState !== 'hidden'
     const timer = window.setInterval(async () => {
-      if (flipStop.current || !canReadSensor()) return
+      if (flipStop.current || !canReadSensor() || flipReadPending.current) return
       const generation = flipGeneration.current
+      flipReadPending.current = true
       try {
         const { values } = await invokeNative('getSensor', { type: 'accelerometer' })
         if (generation !== flipGeneration.current || flipStop.current || !canReadSensor() ||
@@ -695,6 +721,8 @@ export function EggProvider({ children }: { children: ReactNode }) {
       } catch {
         // 传感器不可用：静默停止，主按钮始终可用
         if (generation === flipGeneration.current) flipStop.current = true
+      } finally {
+        flipReadPending.current = false
       }
     }, FLIP_POLL_MS)
     return () => {
@@ -790,6 +818,7 @@ export function EggProvider({ children }: { children: ReactNode }) {
     () => ({
       loaded,
       loadError,
+      loadErrorCode,
       retryLoad,
       starting,
       saving,
@@ -821,6 +850,7 @@ export function EggProvider({ children }: { children: ReactNode }) {
     [
       loaded,
       loadError,
+      loadErrorCode,
       retryLoad,
       starting,
       saving,

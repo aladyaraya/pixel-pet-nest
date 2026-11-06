@@ -1,7 +1,7 @@
 {
   "name": "p-0b48bb06f8c0d4dd",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "engines": {
     "node": ">=20.19.0"
@@ -20,6 +20,9 @@
     "test:pixel": "node scripts/acceptance-pixel.mjs",
     "test:feedback": "node scripts/acceptance-feedback.mjs",
     "test:recovery": "node scripts/acceptance-recovery.mjs",
+    "test:recovery-unit": "node --test src/shared/bridge/loader.test.mjs src/shared/egg/storage.test.mjs",
+    "test:native-reload": "node scripts/acceptance-native-reload.mjs",
+    "test:background-runtime": "node scripts/diagnose-background-reload.mjs .acceptance-final/reload-investigation/latest --assert-single-sensor",
     "test:scheduler": "node --test src/shared/egg/backScreenScheduler.test.mjs",
     "test:back-screen": "node --test src/shared/egg/backScreen.test.mjs src/shared/egg/backScreenScheduler.test.mjs",
     "test:back-screen-failpaths": "node scripts/verify-back-screen-failpaths.mjs"

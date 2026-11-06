@@ -111,12 +111,25 @@ export class RecordMigrationError extends Error {
   }
 }
 
+/** 仅提供可报告的错误分类，不把原始收藏内容暴露到页面或日志。 */
+export class RecordReadError extends Error {
+  constructor(readonly code: 'EGG_STORAGE_RESPONSE' | 'EGG_RECORD_VERSION' | 'EGG_RECORD_FORMAT') {
+    super('本地记录格式暂时无法读取')
+    this.name = 'RecordReadError'
+  }
+}
+
 /** 仅明确不存在（data: null）返回 null；失败或未知格式不能当作空收藏覆盖。 */
 export async function loadRecord(): Promise<EggRecord | null> {
-  const { data } = await invokeNative('getStorage', { key: RECORD_KEY })
+  const response = await invokeNative('getStorage', { key: RECORD_KEY })
+  if (!Object.prototype.hasOwnProperty.call(response, 'data')) throw new RecordReadError('EGG_STORAGE_RESPONSE')
+  const { data } = response
   if (data === null) return null
+  if (isObject(data) && data.version !== 1 && data.version !== RECORD_VERSION) {
+    throw new RecordReadError('EGG_RECORD_VERSION')
+  }
   const record = migrateRecord(data)
-  if (!record) throw new Error('本地记录格式暂时无法读取')
+  if (!record) throw new RecordReadError('EGG_RECORD_FORMAT')
   if (isObject(data) && data.version === 1) {
     try {
       await saveRecord(record)

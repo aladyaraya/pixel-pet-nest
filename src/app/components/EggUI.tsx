@@ -17,7 +17,7 @@ export function TierBadge({ tier }: { tier: PetTier }) {
 
 /** 无法读到原记录时保留它，重试成功前不展示空收藏或提供写入操作。 */
 export function RecordLoadNotice() {
-  const { loadError, retryLoad } = useEgg()
+  const { loadError, loadErrorCode, retryLoad } = useEgg()
   if (!loadError) return <div className="page text-center text-muted-foreground" role="status">正在读取进度…</div>
   return <section className="page" aria-labelledby="record-load-title">
     <div className="duration-card space-y-4" role="alert">
@@ -25,6 +25,7 @@ export function RecordLoadNotice() {
       <h1 id="record-load-title" className="text-title font-semibold">暂时读不到你的进度</h1>
       <p className="text-body">{loadError}</p>
       <p className="text-caption text-muted-foreground">读取成功后再继续孵化。</p>
+      {loadErrorCode && <p className="text-caption text-muted-foreground break-all">排查代码：{loadErrorCode}</p>}
       <Button variant="outline" block onClick={retryLoad}>重新读取</Button>
     </div>
   </section>
