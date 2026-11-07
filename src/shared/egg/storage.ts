@@ -123,8 +123,18 @@ export class RecordReadError extends Error {
 export async function loadRecord(): Promise<EggRecord | null> {
   const response = await invokeNative('getStorage', { key: RECORD_KEY })
   if (!Object.prototype.hasOwnProperty.call(response, 'data')) throw new RecordReadError('EGG_STORAGE_RESPONSE')
-  const { data } = response
-  if (data === null) return null
+  const rawData = response.data
+  if (rawData === null) return null
+  // 真机 SDK 会以 JSON 字符串返回已保存的对象；浏览器适配器直接返回对象。
+  // 只解码一层，解析后的 null、字符串或损坏内容仍交由严格校验拒绝。
+  let data: unknown = rawData
+  if (typeof rawData === 'string') {
+    try {
+      data = JSON.parse(rawData)
+    } catch {
+      throw new RecordReadError('EGG_RECORD_FORMAT')
+    }
+  }
   if (isObject(data) && data.version !== 1 && data.version !== RECORD_VERSION) {
     throw new RecordReadError('EGG_RECORD_VERSION')
   }

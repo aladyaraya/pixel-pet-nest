@@ -5,7 +5,7 @@
  */
 export const APP_NAME = '破壳倒计时'
 
-export const APP_VERSION = '0.1.1'
+export const APP_VERSION = '0.1.2'
 
 /**
  * 文档标题兜底：页面未声明标题时使用（如初始占位页）。

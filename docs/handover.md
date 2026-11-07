@@ -1,5 +1,7 @@
 # 交接文档 ·「破壳倒计时」
 
+> 最新修复（2026-11-07）：0.1.2／versionCode 3 兼容真机 `getStorage.data` 的 JSON 字符串，解决合法存档反复被判为 `EGG_RECORD_FORMAT` 的问题；27 项单测及 10 项生产包场景通过。真机临时加载修复页面已验证原存档可恢复；手机 APK 未覆盖安装。该安装包还带有在线预览 `debugUrl`，正式平台打包需关闭此调试地址。详见 [真机根因与验收](final-acceptance.md#2026-11-07-真机读档根因与-012-修复)。
+
 > 项目性质：STEPX Neo 双屏宠物陪伴计时器，React + TypeScript + Vite，本地存储，无业务后端、登录或支付。
 > 应用定名：破壳倒计时。首页标识、浏览器标题与壳名称已统一；原始PRD文件名保留为历史来源。
 > 最新交付（2026-11-05）：温暖像素界面、12只角色的轻点／长按与双屏回应、音效和到期振动，补齐读档保护与后台翻面检查。最终结果以 [交付验收](final-acceptance.md) 为准；绘本与早期测试报告仅作历史参考。
@@ -141,7 +143,9 @@ npm run test:e2e -- http://127.0.0.1:5179/     # 另一终端；本轮实测服�
 
 错误页增加不包含存档内容的排查代码：`EGG_BRIDGE_INIT` 为原生连接初始化失败；`EGG_STORAGE_TIMEOUT` 为读取超时；`EGG_STORAGE_RESPONSE` 为回包缺少 data；`EGG_RECORD_VERSION` / `EGG_RECORD_FORMAT` 为版本或格式不受支持；`EGG_PRIVACY` 为隐私授权限制；其他读取异常为 `EGG_STORAGE_READ`。代码用于区分原因，不代表已经确认原生崩溃或存档损坏。若修复包仍出错，记录该代码、设备／系统／安装包版本、发生时间及锁屏步骤，再取对应原生日志。
 
-专项回归：`npm run test:recovery-unit`（15 项）及客户端构建后 `npm run test:native-reload`（7 个生产包场景）。后者通过 Playwright 内存路由运行，不依赖预览端口，原生能力为模拟；完整复现和证据见最新验收。手机原有安装包不会随本地源码自动更新。
+专项回归：`npm run test:recovery-unit`（27 项）及客户端构建后 `npm run test:native-reload`（10 个生产包场景）。后者通过 Playwright 内存路由运行，不依赖预览端口，包含对象及真实 SDK 已确认的 JSON 字符串回包形态；完整复现和证据见最新验收。手机原有安装包不会随本地源码自动更新。
+
+2026-11-07 真机确认：合法的 `getStorage.data` 可能是 JSON 字符串。业务存储层只解析一次再校验，解析得到的 null 仍不表示首次使用，未知或损坏记录不自动覆盖。若发现安装包反复刷新，先检查包内 manifest 是否设置 `debugUrl`，以及实际页面是否含 `@vite/client`；原平台正式包应使用包内生产资源，保留原项目身份及签名。
 
 前台状态共同受原生appShow/appHide、页面pagehide/pageshow和document.visibilityState控制。隐藏时停止声音、自主动画及待发回应，取消到期第二次短振；后台翻面采样及迟到传感器回执不能揭晓。恢复只显示当前状态，不追赶旧动画／声音。
 

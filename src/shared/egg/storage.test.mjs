@@ -44,12 +44,18 @@ function harness(response, { failMigrationWrite = false } = {}) {
   return { api: load(resolve(directory, 'storage.ts')), writes }
 }
 
-test('a reloaded 190 second session retains its ID, deadline, pet and previous collection', async () => {
-  const record = fixture()
-  const h = harness({ data: record })
-  assert.deepEqual(wire(await h.api.loadRecord()), record)
-  assert.equal(h.writes.length, 0)
-})
+for (const [name, encode] of [['object', value => value], ['native JSON string', JSON.stringify]]) {
+  test(`a reloaded 190 second session from ${name} retains its ID, deadline, pet and previous collection`, async () => {
+    const record = fixture()
+    const response = { data: encode(record) }
+    const before = wire(response)
+    const h = harness(response)
+    assert.deepEqual(wire(await h.api.loadRecord()), record)
+    assert.deepEqual(wire(await h.api.loadRecord()), record)
+    assert.deepEqual(wire(response), before)
+    assert.equal(h.writes.length, 0)
+  })
+}
 
 test('only explicit data:null represents an absent record', async () => {
   const h = harness({ data: null })
@@ -61,9 +67,18 @@ for (const [name, response, code] of [
   ['missing data', {}, 'EGG_STORAGE_RESPONSE'],
   ['undefined data', { data: undefined }, 'EGG_RECORD_FORMAT'],
   ['broken JSON', { data: '{"version":2,broken' }, 'EGG_RECORD_FORMAT'],
-  ['unverified JSON string wrapping', { data: JSON.stringify(fixture()) }, 'EGG_RECORD_FORMAT'],
+  ['empty string', { data: '' }, 'EGG_RECORD_FORMAT'],
+  ['whitespace string', { data: ' \n\t ' }, 'EGG_RECORD_FORMAT'],
+  ['JSON null string', { data: 'null' }, 'EGG_RECORD_FORMAT'],
+  ['JSON empty string', { data: '""' }, 'EGG_RECORD_FORMAT'],
+  ['double-encoded JSON record', { data: JSON.stringify(JSON.stringify(fixture())) }, 'EGG_RECORD_FORMAT'],
+  ['JSON array', { data: JSON.stringify([fixture()]) }, 'EGG_RECORD_FORMAT'],
+  ['JSON number', { data: '2' }, 'EGG_RECORD_FORMAT'],
+  ['JSON boolean', { data: 'false' }, 'EGG_RECORD_FORMAT'],
   ['unknown version', { data: { ...fixture(), version: 99 } }, 'EGG_RECORD_VERSION'],
+  ['unknown version in JSON string', { data: JSON.stringify({ ...fixture(), version: 99 }) }, 'EGG_RECORD_VERSION'],
   ['incorrect session tier', { data: { ...fixture(), session: { ...fixture().session, tier: 'low' } } }, 'EGG_RECORD_FORMAT'],
+  ['incorrect session tier in JSON string', { data: JSON.stringify({ ...fixture(), session: { ...fixture().session, tier: 'low' } }) }, 'EGG_RECORD_FORMAT'],
 ]) {
   test(`${name} is classified and never replaces the original record`, async () => {
     const before = wire(response)
@@ -75,27 +90,36 @@ for (const [name, response, code] of [
   })
 }
 
-test('legacy migration preserves the selected pet and counts without redrawing the session', async () => {
-  const old = { ...fixture(), version: 1, session: { ...fixture().session, mode: 'normal' } }
-  delete old.session.tier
-  const h = harness({ data: old })
-  const record = wire(await h.api.loadRecord())
-  assert.equal(record.version, 2)
-  assert.equal(record.session.tier, null)
-  assert.equal(record.session.sessionId, old.session.sessionId)
-  assert.equal(record.session.petId, old.session.petId)
-  assert.equal(record.session.deadlineAt, old.session.deadlineAt)
-  assert.deepEqual(record.collection, old.collection)
-  assert.equal(h.writes.length, 1)
-})
-
-test('migration write failure retains the recovered record for save retry', async () => {
-  const old = { ...fixture(), version: 1 }
-  const h = harness({ data: old }, { failMigrationWrite: true })
-  await assert.rejects(h.api.loadRecord(), error => {
-    assert.equal(error.name, 'RecordMigrationError')
-    assert.equal(error.record.session.sessionId, old.session.sessionId)
-    assert.deepEqual(wire(error.record.collection), old.collection)
-    return true
+for (const [name, encode] of [['object', value => value], ['native JSON string', JSON.stringify]]) {
+  test(`legacy ${name} migration preserves the selected pet and counts without redrawing the session`, async () => {
+    const old = { ...fixture(), version: 1, session: { ...fixture().session, mode: 'normal' } }
+    delete old.session.tier
+    const response = { data: encode(old) }
+    const before = wire(response)
+    const h = harness(response)
+    const record = wire(await h.api.loadRecord())
+    assert.equal(record.version, 2)
+    assert.equal(record.session.tier, null)
+    assert.equal(record.session.sessionId, old.session.sessionId)
+    assert.equal(record.session.petId, old.session.petId)
+    assert.equal(record.session.startedAt, old.session.startedAt)
+    assert.equal(record.session.deadlineAt, old.session.deadlineAt)
+    assert.equal(record.settings.backScreenPetId, old.settings.backScreenPetId)
+    assert.deepEqual(record.collection, old.collection)
+    assert.deepEqual(wire(response), before)
+    assert.equal(h.writes.length, 1)
+    assert.deepEqual(h.writes[0], { key: 'egg.record.v1', data: record })
   })
-})
+
+  test(`migration write failure from ${name} retains the recovered record for save retry`, async () => {
+    const old = { ...fixture(), version: 1 }
+    const h = harness({ data: encode(old) }, { failMigrationWrite: true })
+    await assert.rejects(h.api.loadRecord(), error => {
+      assert.equal(error.name, 'RecordMigrationError')
+      assert.equal(error.record.session.sessionId, old.session.sessionId)
+      assert.deepEqual(wire(error.record.collection), old.collection)
+      return true
+    })
+    assert.equal(h.writes.length, 1)
+  })
+}

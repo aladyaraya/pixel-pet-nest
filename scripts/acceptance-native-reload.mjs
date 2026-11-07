@@ -86,19 +86,25 @@ async function scenario(name, run, options = {}) {
     return body ? route.fulfill({ contentType: MIME[extname(path)] || 'application/octet-stream', body })
       : route.fulfill({ status: 404, body: 'missing fixture asset' })
   })
-  await context.addInitScript(({ key, raw, readMode }) => {
+  await context.addInitScript(({ key, raw, readMode, storageShape, initialSdk }) => {
     if (!sessionStorage.getItem('native-reload.seeded')) {
       localStorage.setItem(key, raw)
       sessionStorage.setItem('native-reload.seeded', 'true')
     }
     const loads = Number(sessionStorage.getItem('native-reload.loads') || 0) + 1
     sessionStorage.setItem('native-reload.loads', String(loads))
-    const startupMode = sessionStorage.getItem('native-reload.next-sdk') || 'ready'
+    const startupMode = sessionStorage.getItem('native-reload.next-sdk') || initialSdk
     const handlers = new Map()
     const pendingReads = []
     const state = window.__nativeReload = {
-      loads, startupMode, probeMode: startupMode, readMode, reads: 0, writes: 0,
+      loads, startupMode, probeMode: startupMode, readMode, storageShape, reads: 0, writes: 0, returnedDataTypes: [],
       calls: [], commands: [], subscriptions: [], logs: [],
+    }
+    const storageData = () => {
+      const value = localStorage.getItem(key)
+      const data = storageShape === 'json-string' ? value : JSON.parse(value)
+      state.returnedDataTypes.push(data === null ? 'null' : typeof data)
+      return data
     }
     window.__nativeListenerCounts = () => Object.fromEntries([...handlers].map(([name, listeners]) => [name, listeners.size]))
     window.__emitNative = name => {
@@ -107,7 +113,7 @@ async function scenario(name, run, options = {}) {
     }
     window.__releaseNativeReads = () => {
       state.readMode = 'normal'
-      pendingReads.splice(0).forEach(resolve => resolve({ ok: true, data: JSON.parse(localStorage.getItem(key)) }))
+      pendingReads.splice(0).forEach(resolve => resolve({ ok: true, data: storageData() }))
     }
     window.__sdk = {
       invoke: async (name, args) => {
@@ -123,7 +129,7 @@ async function scenario(name, run, options = {}) {
           state.reads += 1
           if (state.readMode === 'missing-data') return { ok: true }
           if (state.readMode === 'held') return new Promise(resolve => pendingReads.push(resolve))
-          return { ok: true, data: JSON.parse(localStorage.getItem(key)) }
+          return { ok: true, data: storageData() }
         }
         if (name === 'setStorage') {
           if (args.key === 'egg.record.v1') {
@@ -163,11 +169,14 @@ async function scenario(name, run, options = {}) {
       },
     }
     navigator.vibrate = () => true
-  }, { key: KEY, raw: options.raw ?? JSON.stringify(seedRecord()), readMode: options.readMode || 'normal' })
+  }, {
+    key: KEY, raw: options.raw ?? JSON.stringify(seedRecord()), readMode: options.readMode || 'normal',
+    storageShape: options.storageShape || 'object', initialSdk: options.initialSdk || 'ready',
+  })
   try {
     await page.clock.install({ time: new Date(EPOCH) })
     await page.clock.pauseAt(new Date(EPOCH + 1000))
-    await page.goto(BASE, { waitUntil: 'networkidle' })
+    await page.goto(BASE + (options.route || ''), { waitUntil: 'networkidle' })
     await run(page, checkpoints)
     assert.deepEqual(errors, [], 'no unhandled page errors or renderer crash')
     result = { name, ok: true, checkpoints, errors, navigation, final: await evidence(page) }
@@ -324,6 +333,99 @@ await scenario('native-hide-during-pending-read', async (page, checkpoints) => {
     },
   }),
 })
+
+const stringSessionRecord = () => ({
+  ...seedRecord(),
+  settings: { ...seedRecord().settings, lastDurationMs: 190000 },
+  session: {
+    sessionId: 'synthetic-string-190-second-session', durationMs: 190000, tier: 'normal', petId: 'late_duck',
+    startedAt: EPOCH + 1000, deadlineAt: EPOCH + 191000, phase: 'waiting', revealedAt: null,
+    hintedPhases: ['waiting'],
+  },
+})
+const stringRevealedRecord = {
+  ...seedRecord(),
+  settings: { ...seedRecord().settings, lastDurationMs: 10000, backScreenPetId: 'tiny_egg' },
+  session: {
+    sessionId: 'synthetic-string-revealed-session', durationMs: 10000, tier: 'low', petId: 'tiny_egg',
+    startedAt: EPOCH - 19000, deadlineAt: EPOCH - 9000, phase: 'revealed', revealedAt: EPOCH - 8500,
+    hintedPhases: ['waiting', 'cracking', 'almost', 'ready'],
+  },
+  collection: { tiny_egg: { count: 2, lastRevealedAt: EPOCH - 8500 } },
+}
+
+await scenario('native-json-string-revealed-reload', async (page, checkpoints) => {
+  checkpoints.initialRead = await evidence(page)
+  await page.getByRole('button', { name: '再孵一颗', exact: true }).waitFor()
+  await page.getByText('已收进收藏', { exact: true }).waitFor()
+  assert.deepEqual(await readRecord(page), stringRevealedRecord)
+  assert.deepEqual((await evidence(page)).returnedDataTypes, ['string'], 'fixture must exercise actual string data, not an already parsed object')
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: '再孵一颗', exact: true }).waitFor()
+  await page.clock.runFor(2500)
+  checkpoints.afterReload = await evidence(page)
+  assert.equal(checkpoints.afterReload.loads, 2)
+  assert.equal(checkpoints.afterReload.reads, 1)
+  assert.deepEqual(checkpoints.afterReload.returnedDataTypes, ['string'])
+  assert.equal(checkpoints.afterReload.writes, 0, 'reading an existing v2 reveal must not increment or rewrite the collection')
+  assert.deepEqual(await readRecord(page), stringRevealedRecord)
+  assert.equal(await page.getByText('正在破壳…', { exact: true }).count(), 0)
+  assert.equal(checkpoints.afterReload.calls.filter(call => call.name === 'vibrateShort').length, 0, 'old revealed records must not replay due/reveal haptics')
+}, { raw: JSON.stringify(stringRevealedRecord), storageShape: 'json-string', route: '#/hatch' })
+
+await scenario('native-json-string-active-reload', async (page, checkpoints) => {
+  checkpoints.initialRead = await evidence(page)
+  await page.locator('.hatch-countdown').waitFor()
+  const original = await readRecord(page)
+  // This elapsed time is a chosen regression checkpoint, not timing reported by the user.
+  await page.clock.runFor(65000)
+  checkpoints.beforeReload = await evidence(page)
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.locator('.hatch-countdown').waitFor()
+  checkpoints.afterReload = await evidence(page)
+  assert.deepEqual(checkpoints.afterReload.returnedDataTypes, ['string'])
+  assert.equal(checkpoints.afterReload.loads, 2)
+  assert.equal(checkpoints.afterReload.raw, checkpoints.beforeReload.raw)
+  assert.equal(checkpoints.afterReload.writes, 0)
+  const recovered = await readRecord(page)
+  assert.deepEqual(recovered, original, 'string decoding must retain the same ID, pet, duration, timestamps and collection')
+  const remaining = recovered.session.deadlineAt - checkpoints.afterReload.now
+  const [minutes, seconds] = checkpoints.afterReload.countdown.split(':').map(Number)
+  assert.ok(remaining > 124000 && remaining <= 125000, `expected 125 seconds left after the chosen 65-second checkpoint: ${remaining}`)
+  assert.ok(Math.abs((minutes * 60 + seconds) * 1000 - remaining) <= 1000)
+  assert.equal(await page.getByRole('button', { name: '看看是谁', exact: true }).count(), 0)
+}, { raw: JSON.stringify(stringSessionRecord()), storageShape: 'json-string', route: '#/hatch' })
+
+await scenario('native-json-string-late-sdk-recovery', async (page, checkpoints) => {
+  await errorPage(page)
+  checkpoints.initialFailure = await evidence(page)
+  assert.equal(checkpoints.initialFailure.reads, 0, 'initial failure is the bridge startup, before storage is read')
+  assert.equal(checkpoints.initialFailure.writes, 0)
+  const original = await readRecord(page)
+  await page.evaluate(() => window.__restoreNative())
+  await page.getByRole('button', { name: '重新读取', exact: true }).click()
+  await page.locator('.hatch-countdown').waitFor()
+  await eventually(async () => {
+    const listeners = await page.evaluate(() => window.__nativeListenerCounts())
+    assert.ok(listeners.appHide >= 1 && listeners.appShow >= 1)
+  })
+  checkpoints.recovered = await evidence(page)
+  assert.deepEqual(checkpoints.recovered.returnedDataTypes, ['string'])
+  assert.equal(checkpoints.recovered.loads, 1, 'explicit retry must recover without reloading the document')
+  assert.deepEqual(await readRecord(page), original)
+  await page.clock.runFor(1100)
+  await eventually(async () => assert.ok(await frameCount(page) > 0))
+  await emit(page, 'appHide')
+  const hiddenFrames = await frameCount(page)
+  await page.clock.runFor(9000)
+  assert.equal(await frameCount(page), hiddenFrames)
+  await emit(page, 'appShow')
+  await page.clock.runFor(1100)
+  await eventually(async () => assert.ok(await frameCount(page) > hiddenFrames))
+  assert.deepEqual(await readRecord(page), original)
+  checkpoints.lifecycleRecovered = await evidence(page)
+  assert.equal(checkpoints.lifecycleRecovered.writes, 0)
+}, { raw: JSON.stringify(stringSessionRecord()), storageShape: 'json-string', initialSdk: 'missing', route: '#/hatch' })
 
 await browser.close()
 const report = {

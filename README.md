@@ -87,4 +87,6 @@ npm run test:recovery -- http://127.0.0.1:5179/ # 读档保护与后台翻面回
 
 本次新仓库交付的测试结果、最终修复与待做事项见 [最终验收](docs/final-acceptance.md)。运行入口、设备契约、签名与接手顺序见 [交接文档](docs/handover.md)。旧版 `egg-handover.bundle` 历史包已从当前仓库移除，可在历史提交中查看；它不是 APK，当前源码以本仓库 `main` 分支为准。
 
-0.1.1（2026-11-06）修复原生连接首次失败后无法重新读档、恢复时漏订生命周期事件，以及翻面传感器请求堆积；读档失败增加排查代码，继续保留原进度和收藏。对应回归命令为 `npm run test:recovery-unit`、`npm run test:native-reload` 和 `npm run test:background-runtime`，后两项需要先执行 `npm run build:client`。此次交付为 GitHub 源码更新，APK 仍由原平台打包，锁屏后最初重载的真机原因尚未确认。
+0.1.2（2026-11-07）根据实际手机回包，修复 `getStorage.data` 返回 JSON 字符串时无法读取合法存档的问题，保留原记录和收藏；27 项单测、10 项生产包场景通过，真机临时加载修复页面已验证恢复。该手机安装包另带在线预览 `debugUrl`，正式打包应由原平台关闭它，避免预览断线重连时自动刷新。详情见 [真机验收](docs/final-acceptance.md)。
+
+0.1.1（2026-11-06）修复原生连接首次失败后无法重新读档、恢复时漏订生命周期事件，以及翻面传感器请求堆积；读档失败增加排查代码。回归命令为 `npm run test:recovery-unit`、`npm run test:native-reload` 和 `npm run test:background-runtime`，后两项需要先执行 `npm run build:client`。源码更新后仍需由原平台重新打包 APK。
